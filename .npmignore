@@ -1,0 +1,30 @@
+# Source files
+index.ts
+examples.ts
+*.test.ts
+*.spec.ts
+
+# Development files
+.env*
+.vscode/
+.idea/
+*.log
+node_modules/
+bun.lockb
+
+# Build artifacts (keep only dist/)
+tsconfig.json
+tsconfig.*.json
+
+# Documentation for development
+docs/
+.github/
+
+# Test and coverage
+coverage/
+.nyc_output/
+*.lcov
+
+# OS files
+.DS_Store
+Thumbs.db
