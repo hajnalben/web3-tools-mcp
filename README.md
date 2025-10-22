@@ -118,173 +118,51 @@ npx web3-tools-mcp
 ### 1. ABI Signature Tools
 
 #### `get_function_signature`
-Generate 4-byte function selectors from ABI definitions.
-
-**Parameters:**
-- `functionAbi` (string): Function ABI (e.g., `"function transfer(address to, uint256 amount)"`)
-
-**Example:**
-```json
-{
-  "name": "get_function_signature",
-  "arguments": {
-    "functionAbi": "function balanceOf(address owner) view returns (uint256)"
-  }
-}
-```
+Generate 4-byte function selectors from ABI definitions. Supports batch operations for multiple functions at once.
 
 #### `get_event_signature`
-Generate 32-byte event signatures (topic0) from ABI definitions.
-
-**Parameters:**
-- `eventAbi` (string): Event ABI (e.g., `"event Transfer(address indexed from, address indexed to, uint256 value)"`)
+Generate 32-byte event signatures (topic0) from ABI definitions. Supports batch operations for multiple events at once.
 
 #### `get_error_signature`
-Generate 4-byte error selectors from ABI definitions.
-
-**Parameters:**
-- `errorAbi` (string): Error ABI (e.g., `"error InsufficientBalance(uint256 available, uint256 required)"`)
+Generate 4-byte error selectors from ABI definitions. Supports batch operations for multiple errors at once.
 
 ### 2. Contract Interaction Tools
 
 #### `call_contract_function`
-Call view/pure functions on smart contracts.
-
-**Parameters:**
-- `chain` (enum): Blockchain network (`mainnet`, `base`, `arbitrum`, `polygon`, `optimism`, `celo`, `localhost`)
-- `contractAddress` (string): Contract address to call
-- `functionAbi` (string): Function ABI definition
-- `args` (array, optional): Function arguments
-- `blockNumber` (string, optional): Specific block number to query
-
-**Example:**
-```json
-{
-  "name": "call_contract_function",
-  "arguments": {
-    "chain": "mainnet",
-    "contractAddress": "0xA0b86a33E6441c1e4e9c08975a0c8246e8dB8C4F",
-    "functionAbi": "function balanceOf(address owner) view returns (uint256)",
-    "args": ["0x742d35Cc6cF36C3e0C37d3f6D1D5e4f2C8F3E8A9"]
-  }
-}
-```
+Call view/pure functions on smart contracts. Supports batch operations for executing multiple calls efficiently across different contracts and chains.
 
 #### `get_contract_abi`
-Get comprehensive contract information including ABI, proxy detection, and verification status from Etherscan.
+Get comprehensive contract information including ABI, proxy detection, compilation info, creation info, and verification status from Etherscan. Includes smart caching for performance.
 
-**Parameters:**
-- `chain` (enum): Blockchain network
-- `address` (string): Contract address
+#### `get_contract_source_code`
+Retrieve verified contract source code from Etherscan with proxy support and flexible output options (full source, summary, or metadata only). Features smart caching.
+
+#### `get_contract_source_file`
+Retrieve specific source file from cached contract data. Use after calling `get_contract_source_code` with full source option.
 
 #### `is_contract`
-Check if an address is a smart contract or EOA (Externally Owned Account).
-
-**Parameters:**
-- `chain` (enum): Blockchain network
-- `address` (string): Address to check
+Check if an address is a smart contract or EOA (Externally Owned Account). Returns contract status and bytecode length.
 
 ### 3. Balance Query Tools
 
 #### `get_balance`
-Get native token balance for an address.
-
-**Parameters:**
-- `chain` (enum): Blockchain network
-- `address` (string): Address to check
-- `blockNumber` (string, optional): Specific block number
-
-#### `get_token_balance`
-Get ERC20/ERC777 token balance for an address.
-
-**Parameters:**
-- `chain` (enum): Blockchain network
-- `tokenAddress` (string): Token contract address
-- `holderAddress` (string): Address to check balance for
-- `blockNumber` (string, optional): Specific block number
-
-#### `batch_native_balances`
-Get native token balances for multiple addresses in a single call.
-
-**Parameters:**
-- `chain` (enum): Blockchain network
-- `addresses` (array): Array of addresses to check
-- `blockNumber` (string, optional): Specific block number
-
-#### `batch_token_balances`
-Get multiple token balances for multiple addresses efficiently.
-
-**Parameters:**
-- `chain` (enum): Blockchain network
-- `queries` (array): Array of balance queries with `tokenAddress`, `holderAddress`, and optional `label`
-- `blockNumber` (string, optional): Specific block number
+Get native or ERC20 token balances for single or multiple addresses efficiently. Supports batch operations for optimal performance. Omit `tokenAddress` for native balance, include it for ERC20 tokens.
 
 ### 4. Event Log Tools
 
 #### `get_logs`
-Query contract events with decoded output and parameter filtering. Automatically falls back to Hypersync for supported chains when needed.
+Query contract events with decoded output and parameter filtering. Automatically falls back to Hypersync for supported chains when needed. Supports filtering by contract address, block range, and indexed event parameters.
 
-**Parameters:**
-- `chain` (enum): Blockchain network
-- `eventAbi` (string): Event ABI definition for decoding
-- `address` (string, optional): Contract address to filter logs
-- `fromBlock` (string, optional): Start block number
-- `toBlock` (string, optional): End block number
-- `eventArgs` (object, optional): Filter by indexed event parameters
-
-**Example:**
-```json
-{
-  "name": "get_logs",
-  "arguments": {
-    "chain": "mainnet",
-    "eventAbi": "event Transfer(address indexed from, address indexed to, uint256 value)",
-    "address": "0xA0b86a33E6441c1e4e9c08975a0c8246e8dB8C4F",
-    "fromBlock": "18000000",
-    "toBlock": "18001000",
-    "eventArgs": {
-      "from": "0x742d35Cc6cF36C3e0C37d3f6D1D5e4f2C8F3E8A9"
-    }
-  }
-}
-```
-
-### 5. Batch Operations
-
-#### `batch_contract_calls`
-Execute multiple contract calls in a single batch operation.
-
-**Parameters:**
-- `chain` (enum): Blockchain network
-- `calls` (array): Array of contract calls with `contractAddress`, `functionAbi`, `args`, and optional `label`
-- `blockNumber` (string, optional): Specific block number
-
-### 6. Advanced Tools
+### 5. Advanced Tools
 
 #### `get_storage_at`
-Read raw storage data from a contract with ABI-based decoding.
-
-**Parameters:**
-- `chain` (enum): Blockchain network
-- `address` (string): Contract address
-- `slot` (string): Storage slot to read (hex string)
-- `abiType` (string): ABI type for decoding (`uint256`, `address`, `bool`, `bytes32`, etc.)
-- `blockNumber` (string, optional): Specific block number
+Read raw storage data from a contract with ABI-based decoding. Supports various types like uint256, address, bool, bytes32, etc.
 
 #### `get_block_info`
-Get comprehensive block information including timestamp, hash, and formatted dates.
-
-**Parameters:**
-- `chain` (enum): Blockchain network
-- `blockNumber` (string, optional): Block number to query (defaults to latest)
+Get comprehensive block information including timestamp, hash, parent hash, and formatted dates. Defaults to latest block if not specified.
 
 #### `trace_transaction`
-Trace a transaction to see detailed execution information including internal calls, state changes, and gas usage.
-
-**Parameters:**
-- `chain` (enum): Blockchain network
-- `transactionHash` (string): Transaction hash to trace
-- `traceType` (enum, optional): Type of trace (`trace`, `vmTrace`, `stateDiff`)
+Trace a transaction to see detailed execution information including internal calls, state changes, and gas usage. Supports multiple trace types: `trace` (call tree), `vmTrace` (VM execution), `stateDiff` (state changes).
 
 ## ⚙️ Configuration
 
@@ -326,56 +204,6 @@ npx web3-tools-mcp --custom-rpc '{"mainnet": "https://my-custom-rpc.com", "base"
 - **Balance Batching**: Query multiple balances in parallel
 - **Result Aggregation**: Organized results with success/failure tracking
 
-## 🚀 Usage Examples
-
-### Basic Contract Call
-```json
-{
-  "name": "call_contract_function",
-  "arguments": {
-    "chain": "mainnet",
-    "contractAddress": "0xA0b86a33E6441c1e4e9c08975a0c8246e8dB8C4F",
-    "functionAbi": "function name() view returns (string)",
-    "args": []
-  }
-}
-```
-
-### Event Log Analysis
-```json
-{
-  "name": "get_logs",
-  "arguments": {
-    "chain": "base",
-    "eventAbi": "event Swap(address indexed sender, uint256 amount0In, uint256 amount1In, uint256 amount0Out, uint256 amount1Out, address indexed to)",
-    "fromBlock": "10000000",
-    "toBlock": "latest"
-  }
-}
-```
-
-### Batch Balance Queries
-```json
-{
-  "name": "batch_token_balances",
-  "arguments": {
-    "chain": "mainnet",
-    "queries": [
-      {
-        "tokenAddress": "0xA0b86a33E6441c1e4e9c08975a0c8246e8dB8C4F",
-        "holderAddress": "0x742d35Cc6cF36C3e0C37d3f6D1D5e4f2C8F3E8A9",
-        "label": "USDC Balance"
-      },
-      {
-        "tokenAddress": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
-        "holderAddress": "0x742d35Cc6cF36C3e0C37d3f6D1D5e4f2C8F3E8A9",
-        "label": "WETH Balance"
-      }
-    ]
-  }
-}
-```
-
 ## 📋 Requirements
 
 - **Runtime**: Node.js v20.0.0 or higher
@@ -385,7 +213,7 @@ npx web3-tools-mcp --custom-rpc '{"mainnet": "https://my-custom-rpc.com", "base"
 
 ## 🧪 Testing
 
-The server includes a comprehensive test suite that validates all functionality:
+The server includes a comprehensive test suite with 70 tests covering all functionality:
 
 ### Running Tests
 
@@ -396,45 +224,8 @@ npm test
 # Run tests in watch mode
 npm run test:watch
 
-# Run tests with coverage
-npm run test:coverage
-
-# Run type checking
-npm run lint
-```
-
-### Test Coverage
-
-The test suite covers:
-
-- **ABI Signature Generation**: Function, event, and error signatures
-- **Contract Interactions**: Detecting contracts vs EOAs, calling view functions
-- **Balance Queries**: Native and token balances, batch operations
-- **Block Information**: Latest and historical block data
-- **Multi-chain Support**: Testing across different networks
-- **Error Handling**: Invalid inputs, network failures, malformed requests
-- **Data Type Handling**: BigInt serialization, address normalization
-- **Performance**: Batch vs individual operation timing
-
-### Example Usage
-
-```bash
-# Run example demonstrations
-npm run examples
-```
-
-The examples file demonstrates:
-- Function signature generation
-- Contract vs EOA detection
-- Smart contract function calls
-- Balance queries
-- Block information retrieval
-
-### Test Structure
-
-```
-test.ts                 # Main test suite
-examples.ts            # Usage examples and demonstrations
+# Run tests with UI
+npm run test:ui
 ```
 
 ## 🔗 Related Tools
