@@ -301,7 +301,7 @@ The server supports multiple configuration options through environment variables
 
 **Example:**
 ```bash
-bun index.ts --custom-rpc '{"mainnet": "https://my-custom-rpc.com", "base": "https://base-rpc.com"}'
+npx web3-tools-mcp --custom-rpc '{"mainnet": "https://my-custom-rpc.com", "base": "https://base-rpc.com"}'
 ```
 
 ## 🔧 Technical Features
@@ -378,7 +378,8 @@ bun index.ts --custom-rpc '{"mainnet": "https://my-custom-rpc.com", "base": "htt
 
 ## 📋 Requirements
 
-- **Runtime**: Bun (recommended) or Node.js
+- **Runtime**: Node.js v20.0.0 or higher
+- **Package Manager**: npm (recommended) or yarn/pnpm
 - **Dependencies**: viem, @envio-dev/hypersync-client, @modelcontextprotocol/sdk
 - **Network Access**: Internet connection for blockchain RPC calls
 
@@ -390,16 +391,16 @@ The server includes a comprehensive test suite that validates all functionality:
 
 ```bash
 # Run all tests
-bun test
+npm test
 
 # Run tests in watch mode
-bun run test:watch
+npm run test:watch
 
 # Run tests with coverage
-bun run test:coverage
+npm run test:coverage
 
 # Run type checking
-bun run lint
+npm run lint
 ```
 
 ### Test Coverage
@@ -419,7 +420,7 @@ The test suite covers:
 
 ```bash
 # Run example demonstrations
-bun run examples
+npm run examples
 ```
 
 The examples file demonstrates:

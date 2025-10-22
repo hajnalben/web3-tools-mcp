@@ -1,28 +1,39 @@
 {
   "name": "web3-tools-mcp",
   "version": "1.0.1",
-  "description": "MCP server for blockchain interactions using viem, etherscan and hypersync.",
+  "description": "Model Context Protocol server for blockchain interactions using viem, Etherscan, and Hypersync",
+  "type": "module",
   "main": "dist/index.js",
-  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
   "bin": {
     "web3-tools-mcp": "dist/index.js"
   },
-  "type": "module",
   "files": [
-    "dist/**/*",
+    "dist",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "src"
   ],
-  "scripts": {
-    "start": "node dist/index.js",
-    "dev": "bun --watch index.ts",
-    "build": "bun build index.ts --outdir dist --target node --format esm && chmod +x dist/index.js",
-    "clean": "rm -rf dist",
-    "prepublishOnly": "bun run clean && bun run build",
-    "type-check": "tsc --noEmit",
-    "lint": "bun run type-check"
+  "engines": {
+    "node": ">=20.0.0"
   },
-  "keywords": ["mcp", "ethereum", "viem", "blockchain", "web3", "model-context-protocol", "ai"],
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc --watch",
+    "prepare": "npm run build",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:ui": "vitest --ui"
+  },
+  "keywords": [
+    "mcp",
+    "ethereum",
+    "viem",
+    "blockchain",
+    "web3",
+    "model-context-protocol",
+    "ai"
+  ],
   "author": "Benjamin Hajnal <hajnalbenjamin@gmail.com>",
   "license": "MIT",
   "repository": {
@@ -33,16 +44,17 @@
     "url": "https://github.com/hajnalben/web3-tools-mcp/issues"
   },
   "homepage": "https://github.com/hajnalben/web3-tools-mcp#readme",
-  "devDependencies": {
-    "@types/bun": "latest",
-    "@types/node": "^24.0.4"
-  },
-  "peerDependencies": {
-    "typescript": "^5"
-  },
   "dependencies": {
     "@envio-dev/hypersync-client": "^0.6.5",
-    "@modelcontextprotocol/sdk": "^1.13.1",
-    "viem": "^2.31.4"
+    "@modelcontextprotocol/sdk": "^1.20.1",
+    "viem": "^2.31.4",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.23",
+    "@vitest/ui": "^3.2.4",
+    "dotenv": "^17.2.3",
+    "typescript": "^5.0.0",
+    "vitest": "^3.2.4"
   }
 }
