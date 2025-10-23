@@ -5,6 +5,7 @@ import advancedTools from './advanced.js'
 import balanceTools from './balance.js'
 import contractTools from './contract.js'
 import contractInfoTools from './contract-info.js'
+import ensTools from './ens.js'
 import logTools from './logs.js'
 import signatureTools from './signatures.js'
 
@@ -14,7 +15,8 @@ const allToolDefinitions = {
   ...contractInfoTools,
   ...balanceTools,
   ...logTools,
-  ...advancedTools
+  ...advancedTools,
+  ...ensTools
 } as const
 
 // Register all tools with the MCP server

@@ -1,6 +1,6 @@
 {
   "name": "web3-tools-mcp",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Model Context Protocol server for blockchain interactions using viem, Etherscan, and Hypersync",
   "type": "module",
   "main": "dist/index.js",
@@ -18,7 +18,8 @@
     "node": ">=20.0.0"
   },
   "scripts": {
-    "build": "tsc",
+    "clean": "rm -rf dist",
+    "build": "npm run clean && tsc",
     "watch": "tsc --watch",
     "prepare": "npm run build",
     "test": "vitest run",
@@ -31,6 +32,8 @@
     "viem",
     "blockchain",
     "web3",
+    "ens",
+    "ethereum-name-service",
     "model-context-protocol",
     "ai"
   ],

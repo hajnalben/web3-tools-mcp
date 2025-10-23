@@ -92,11 +92,12 @@ npx web3-tools-mcp
 ## 🌟 Key Features
 
 - **Multi-chain Support**: Works with Ethereum mainnet, Base, Arbitrum, Polygon, Optimism, Celo, and localhost
+- **ENS Name Resolution**: Resolve ENS names to addresses, reverse lookup addresses to names, and query ENS records
 - **Smart Contract Interactions**: Call view/pure functions, get contract ABIs, and analyze contract bytecode
 - **Event Log Analysis**: Query and decode blockchain events with flexible filtering
 - **Token Operations**: Get native and ERC20 token balances for single or multiple addresses
 - **ABI Utilities**: Generate function, event, and error signatures from ABI definitions
-- **Batch Operations**: Execute multiple contract calls or balance queries efficiently
+- **Batch Operations**: Execute multiple contract calls, balance queries, or ENS resolutions efficiently
 - **Transaction Analysis**: Trace transactions for detailed execution information
 - **Enhanced RPC Support**: Automatic failover between providers (Alchemy, Infura, public RPCs)
 - **Hypersync Integration**: Fast event log querying with fallback support
@@ -143,17 +144,40 @@ Retrieve specific source file from cached contract data. Use after calling `get_
 #### `is_contract`
 Check if an address is a smart contract or EOA (Externally Owned Account). Returns contract status and bytecode length.
 
-### 3. Balance Query Tools
+### 3. ENS (Ethereum Name Service) Tools
+
+#### `resolve_ens_name`
+Resolve an ENS name to its Ethereum address. ENS names are human-readable identifiers (like vitalik.eth) that resolve to Ethereum addresses. Returns the resolved address or null if not found.
+
+#### `reverse_resolve_ens`
+Reverse resolve an Ethereum address to its primary ENS name. Returns the ENS name if the address has set a reverse record, useful for displaying human-readable names for addresses.
+
+#### `get_ens_text_record`
+Retrieve text records from an ENS name. Common text record keys include:
+- `avatar`: Avatar image URL
+- `description`: Description text
+- `email`: Email address
+- `url`: Website URL
+- `com.twitter`: Twitter handle
+- `com.github`: GitHub username
+
+#### `get_ens_avatar`
+Get the avatar URI for an ENS name. Returns the avatar URL if set, which can be an HTTPS URL, IPFS hash, or NFT reference.
+
+#### `batch_resolve_ens_names`
+Resolve multiple ENS names to addresses in a single batch operation for improved efficiency. Returns results for all names with success/failure status.
+
+### 4. Balance Query Tools
 
 #### `get_balance`
 Get native or ERC20 token balances for single or multiple addresses efficiently. Supports batch operations for optimal performance. Omit `tokenAddress` for native balance, include it for ERC20 tokens.
 
-### 4. Event Log Tools
+### 5. Event Log Tools
 
 #### `get_logs`
 Query contract events with decoded output and parameter filtering. Automatically falls back to Hypersync for supported chains when needed. Supports filtering by contract address, block range, and indexed event parameters.
 
-### 5. Advanced Tools
+### 6. Advanced Tools
 
 #### `get_storage_at`
 Read raw storage data from a contract with ABI-based decoding. Supports various types like uint256, address, bool, bytes32, etc.
