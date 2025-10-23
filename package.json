@@ -1,6 +1,6 @@
 {
   "name": "web3-tools-mcp",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "description": "Model Context Protocol server for blockchain interactions using viem, Etherscan, and Hypersync",
   "type": "module",
   "main": "dist/src/index.js",
@@ -9,7 +9,7 @@
     "web3-tools-mcp": "dist/src/index.js"
   },
   "files": [
-    "dist",
+    "dist/src",
     "README.md",
     "LICENSE",
     "src"
