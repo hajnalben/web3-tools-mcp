@@ -1,5 +1,19 @@
 import { http, createPublicClient } from 'viem'
-import { arbitrum, base, celo, localhost, mainnet, optimism, polygon } from 'viem/chains'
+import {
+  arbitrum,
+  avalanche,
+  base,
+  bsc,
+  gnosis,
+  linea,
+  localhost,
+  mainnet,
+  optimism,
+  polygon,
+  sonic,
+  unichain,
+  zksync
+} from 'viem/chains'
 import type { ChainName, Config } from './types.js'
 
 // Enhanced RPC configuration with API keys
@@ -31,7 +45,7 @@ function getRpcUrl(chainName: string, config: Config): string {
       ? `https://polygon-mainnet.g.alchemy.com/v2/${config.alchemyApiKey}`
       : config.infuraApiKey
         ? `https://polygon-mainnet.infura.io/v3/${config.infuraApiKey}`
-        : 'https://polygon-rpc.com/',
+        : 'https://polygon-rpc.com',
 
     optimism: config.alchemyApiKey
       ? `https://opt-mainnet.g.alchemy.com/v2/${config.alchemyApiKey}`
@@ -39,7 +53,44 @@ function getRpcUrl(chainName: string, config: Config): string {
         ? `https://optimism-mainnet.infura.io/v3/${config.infuraApiKey}`
         : 'https://mainnet.optimism.io',
 
-    celo: 'https://celo.drpc.org',
+    avalanche: config.alchemyApiKey
+      ? `https://avax-mainnet.g.alchemy.com/v2/${config.alchemyApiKey}`
+      : config.infuraApiKey
+        ? `https://avalanche-mainnet.infura.io/v3/${config.infuraApiKey}`
+        : 'https://api.avax.network/ext/bc/C/rpc',
+
+    bnb: config.alchemyApiKey
+      ? `https://bnb-mainnet.g.alchemy.com/v2/${config.alchemyApiKey}`
+      : config.infuraApiKey
+        ? `https://bsc-mainnet.infura.io/v3/${config.infuraApiKey}`
+        : 'https://bsc-dataseed.bnbchain.org',
+
+    gnosis: config.alchemyApiKey
+      ? `https://gnosis-mainnet.g.alchemy.com/v2/${config.alchemyApiKey}`
+      : 'https://rpc.gnosischain.com',
+
+    sonic: config.alchemyApiKey
+      ? `https://sonic-mainnet.g.alchemy.com/v2/${config.alchemyApiKey}`
+      : 'https://rpc.soniclabs.com',
+
+    zksync: config.alchemyApiKey
+      ? `https://zksync-mainnet.g.alchemy.com/v2/${config.alchemyApiKey}`
+      : config.infuraApiKey
+        ? `https://zksync-mainnet.infura.io/v3/${config.infuraApiKey}`
+        : 'https://mainnet.era.zksync.io',
+
+    linea: config.alchemyApiKey
+      ? `https://linea-mainnet.g.alchemy.com/v2/${config.alchemyApiKey}`
+      : config.infuraApiKey
+        ? `https://linea-mainnet.infura.io/v3/${config.infuraApiKey}`
+        : 'https://rpc.linea.build',
+
+    unichain: config.alchemyApiKey
+      ? `https://unichain-mainnet.g.alchemy.com/v2/${config.alchemyApiKey}`
+      : config.infuraApiKey
+        ? `https://unichain-mainnet.infura.io/v3/${config.infuraApiKey}`
+        : 'https://sepolia.unichain.org',
+
     localhost: 'http://localhost:8545'
   }
 
@@ -78,10 +129,46 @@ export const CHAINS = (config: Config) => ({
       return getRpcUrl('optimism', config)
     }
   },
-  celo: {
-    chain: celo,
+  avalanche: {
+    chain: avalanche,
     get rpc() {
-      return getRpcUrl('celo', config)
+      return getRpcUrl('avalanche', config)
+    }
+  },
+  bnb: {
+    chain: bsc,
+    get rpc() {
+      return getRpcUrl('bnb', config)
+    }
+  },
+  gnosis: {
+    chain: gnosis,
+    get rpc() {
+      return getRpcUrl('gnosis', config)
+    }
+  },
+  sonic: {
+    chain: sonic,
+    get rpc() {
+      return getRpcUrl('sonic', config)
+    }
+  },
+  zksync: {
+    chain: zksync,
+    get rpc() {
+      return getRpcUrl('zksync', config)
+    }
+  },
+  linea: {
+    chain: linea,
+    get rpc() {
+      return getRpcUrl('linea', config)
+    }
+  },
+  unichain: {
+    chain: unichain,
+    get rpc() {
+      return getRpcUrl('unichain', config)
     }
   },
   localhost: {
@@ -94,15 +181,36 @@ export const CHAINS = (config: Config) => ({
 
 // Hypersync URLs for supported chains (localhost is not supported)
 export const HYPERSYNC_URLS: Partial<Record<ChainName, string>> = {
-  base: 'https://base.hypersync.xyz',
-  arbitrum: 'https://arbitrum.hypersync.xyz',
-  mainnet: 'https://eth.hypersync.xyz',
-  polygon: 'https://polygon.hypersync.xyz',
-  optimism: 'https://optimism.hypersync.xyz'
-  // celo and localhost are not supported by hypersync
+  mainnet: 'https://eth.hypersync.xyz', // Chain ID 1
+  arbitrum: 'https://arbitrum.hypersync.xyz', // Chain ID 42161
+  avalanche: 'https://avalanche.hypersync.xyz', // Chain ID 43114
+  base: 'https://base.hypersync.xyz', // Chain ID 8453
+  bnb: 'https://bsc.hypersync.xyz', // Chain ID 56
+  gnosis: 'https://gnosis.hypersync.xyz', // Chain ID 100
+  sonic: 'https://sonic.hypersync.xyz', // Chain ID 146
+  optimism: 'https://optimism.hypersync.xyz', // Chain ID 10
+  polygon: 'https://polygon.hypersync.xyz', // Chain ID 137
+  zksync: 'https://zksync.hypersync.xyz', // Chain ID 324
+  linea: 'https://linea.hypersync.xyz', // Chain ID 59144
+  unichain: 'https://unichain.hypersync.xyz' // Chain ID 130
+  // localhost is not supported by hypersync
 }
 
-export const SUPPORTED_CHAINS = ['mainnet', 'base', 'arbitrum', 'polygon', 'optimism', 'celo', 'localhost'] as const
+export const SUPPORTED_CHAINS = [
+  'mainnet',
+  'arbitrum',
+  'avalanche',
+  'base',
+  'bnb',
+  'gnosis',
+  'sonic',
+  'optimism',
+  'polygon',
+  'zksync',
+  'linea',
+  'unichain',
+  'localhost'
+] as const
 
 // Client manager
 export class ClientManager {
@@ -137,7 +245,13 @@ export class ClientManager {
       arbitrum: 'arbiscan.io',
       polygon: 'polygonscan.com',
       optimism: 'optimistic.etherscan.io',
-      celo: 'celoscan.io',
+      avalanche: 'snowtrace.io',
+      bnb: 'bscscan.com',
+      gnosis: 'gnosisscan.io',
+      sonic: 'sonicscan.org',
+      zksync: 'era.zksync.network',
+      linea: 'lineascan.build',
+      unichain: 'uniscan.xyz',
       localhost: 'etherscan.io'
     }
     return domains[chainName] || 'etherscan.io'

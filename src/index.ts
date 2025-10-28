@@ -35,7 +35,7 @@ ENVIRONMENT VARIABLES:
   HYPERSYNC_API_KEY             Alternative to --hypersync-api-key
 
 SUPPORTED CHAINS:
-  mainnet, base, arbitrum, polygon, optimism, celo, localhost
+  mainnet, arbitrum, avalanche, base, bnb, gnosis, sonic, optimism, polygon, zksync, linea, unichain, localhost
 
 EXAMPLES:
   # Use with npx (recommended)

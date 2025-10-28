@@ -4,7 +4,7 @@ A Model Context Protocol (MCP) server for blockchain interactions using [viem](h
 
 ## Features
 
-- Multi-chain support (Ethereum, Base, Arbitrum, Polygon, Optimism, Celo)
+- Multi-chain support (Ethereum, Arbitrum, Avalanche, Base, BNB Chain, Gnosis, Sonic, Optimism, Polygon, zkSync Era, Linea, Unichain)
 - Smart contract interactions (read functions, ABI retrieval, source code)
 - ENS resolution (names ↔ addresses, text records, avatars)
 - Token balances (native & ERC20, batch queries)
@@ -64,12 +64,18 @@ npx web3-tools-mcp
 
 | Network | Chain ID | Hypersync |
 |---------|----------|-----------|
-| Ethereum | 1 | ✅ |
-| Base | 8453 | ✅ |
+| Ethereum Mainnet | 1 | ✅ |
 | Arbitrum | 42161 | ✅ |
-| Polygon | 137 | ✅ |
+| Avalanche | 43114 | ✅ |
+| Base | 8453 | ✅ |
+| BNB Chain | 56 | ✅ |
+| Gnosis | 100 | ✅ |
+| Sonic | 146 | ✅ |
 | Optimism | 10 | ✅ |
-| Celo | 42220 | ❌ |
+| Polygon | 137 | ✅ |
+| zkSync Era | 324 | ✅ |
+| Linea | 59144 | ✅ |
+| Unichain | 130 | ✅ |
 | Localhost | 31337 | ❌ |
 
 ## Available Tools

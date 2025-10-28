@@ -17,7 +17,20 @@ export interface Config {
 }
 
 // Chain names
-export type ChainName = 'mainnet' | 'base' | 'arbitrum' | 'polygon' | 'optimism' | 'celo' | 'localhost'
+export type ChainName =
+  | 'mainnet'
+  | 'arbitrum'
+  | 'avalanche'
+  | 'base'
+  | 'bnb'
+  | 'gnosis'
+  | 'sonic'
+  | 'optimism'
+  | 'polygon'
+  | 'zksync'
+  | 'linea'
+  | 'unichain'
+  | 'localhost'
 
 // Tool handler result type
 export interface ToolResult {
