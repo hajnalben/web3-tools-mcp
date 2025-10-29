@@ -1,10 +1,5 @@
-import { describe, it, expect, beforeAll } from 'vitest'
-import { config } from 'dotenv'
-import { initializeClientManager } from '../../src/client.js'
+import { describe, it, expect } from 'vitest'
 import contractInfoTools from '../../src/tools/contract-info.js'
-
-// Load environment variables
-config()
 
 const USDC_ADDRESS = '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48'
 const CHAIN = 'mainnet'
@@ -12,15 +7,6 @@ const CHAIN = 'mainnet'
 const maybeDescribe = process.env.ETHERSCAN_API_KEY ? describe : describe.skip
 
 maybeDescribe('Contract Info Tools (with Caching)', () => {
-  beforeAll(() => {
-    // Initialize client manager with config
-    initializeClientManager({
-      alchemyApiKey: process.env.ALCHEMY_API_KEY,
-      infuraApiKey: process.env.INFURA_API_KEY,
-      etherscanApiKey: process.env.ETHERSCAN_API_KEY,
-      hypersyncApiKey: process.env.HYPERSYNC_API_KEY
-    })
-  })
   describe("get_contract_abi", () => {
     it("should fetch USDC contract ABI", async () => {
       const result = await contractInfoTools.get_contract_abi.handler({

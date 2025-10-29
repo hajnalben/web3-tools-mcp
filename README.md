@@ -6,6 +6,8 @@ A Model Context Protocol (MCP) server for blockchain interactions using [viem](h
 
 - Multi-chain support (Ethereum, Arbitrum, Avalanche, Base, BNB Chain, Gnosis, Sonic, Optimism, Polygon, zkSync Era, Linea, Unichain)
 - Smart contract interactions (read functions, ABI retrieval, source code)
+- Contract simulation & gas estimation (simulate transactions, estimate costs)
+- Real-time gas price tracking (legacy & EIP-1559)
 - ENS resolution (names ↔ addresses, text records, avatars)
 - Token balances (native & ERC20, batch queries)
 - Event log queries with Hypersync acceleration
@@ -93,6 +95,11 @@ npx web3-tools-mcp
 
 ### Contract Interaction
 - `call_contract_function` - Call view/pure functions (supports batch)
+
+### Gas & Simulation
+- `simulate_contract` - Simulate contract calls without broadcasting (includes gas estimate)
+- `estimate_gas` - Estimate gas cost for any transaction
+- `get_gas_price` - Get current gas prices (legacy & EIP-1559)
 
 ### ENS
 - `resolve_ens_name` - ENS name → address

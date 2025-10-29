@@ -1,21 +1,7 @@
-import { describe, it, expect, beforeAll } from 'vitest'
-import { config } from 'dotenv'
-import { initializeClientManager } from '../../src/client.js'
+import { describe, it, expect } from 'vitest'
 import advancedTools from '../../src/tools/advanced.js'
 
-// Load environment variables
-config()
-
 describe('Advanced Tools', () => {
-  beforeAll(() => {
-    // Initialize client manager with config
-    initializeClientManager({
-      alchemyApiKey: process.env.ALCHEMY_API_KEY,
-      infuraApiKey: process.env.INFURA_API_KEY,
-      etherscanApiKey: process.env.ETHERSCAN_API_KEY,
-      hypersyncApiKey: process.env.HYPERSYNC_API_KEY
-    })
-  })
   describe('get_storage_at', () => {
     it('should read storage slot from USDC contract', async () => {
       const USDC_CONTRACT = '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48'

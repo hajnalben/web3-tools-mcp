@@ -1,21 +1,7 @@
-import { describe, it, expect, beforeAll } from 'vitest'
-import { config } from 'dotenv'
-import { initializeClientManager } from '../../src/client.js'
+import { describe, it, expect } from 'vitest'
 import ensTools from '../../src/tools/ens.js'
 
-// Load environment variables
-config()
-
 describe('ENS Tools', () => {
-  beforeAll(() => {
-    // Initialize client manager with config
-    initializeClientManager({
-      alchemyApiKey: process.env.ALCHEMY_API_KEY,
-      infuraApiKey: process.env.INFURA_API_KEY,
-      etherscanApiKey: process.env.ETHERSCAN_API_KEY,
-      hypersyncApiKey: process.env.HYPERSYNC_API_KEY
-    })
-  })
 
   describe('resolve_ens_name', () => {
     it('should resolve vitalik.eth to an address', async () => {

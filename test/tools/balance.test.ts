@@ -1,21 +1,7 @@
-import { describe, it, expect, beforeAll } from 'vitest'
-import { config } from 'dotenv'
-import { initializeClientManager } from '../../src/client.js'
+import { describe, it, expect } from 'vitest'
 import balanceTools from '../../src/tools/balance.js'
 
-// Load environment variables
-config()
-
 describe('Balance Tools', () => {
-  beforeAll(() => {
-    // Initialize client manager with config
-    initializeClientManager({
-      alchemyApiKey: process.env.ALCHEMY_API_KEY,
-      infuraApiKey: process.env.INFURA_API_KEY,
-      etherscanApiKey: process.env.ETHERSCAN_API_KEY,
-      hypersyncApiKey: process.env.HYPERSYNC_API_KEY
-    })
-  })
   describe('get_balance', () => {
     it('should fetch native ETH balance for an address', async () => {
       const VITALIK_ADDRESS = '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045'
