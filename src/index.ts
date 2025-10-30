@@ -6,6 +6,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { initializeClientManager } from "./client.js";
 import { registerAllTools } from "./tools/index.js";
 import { parseCommandLineArgs } from "./utils.js";
+import { startWalletServer } from "./wallet-server.js";
 
 // Parse configuration
 const config = parseCommandLineArgs();
@@ -83,11 +84,18 @@ const server = new McpServer({
 // Register all tools
 registerAllTools(server);
 
+// Start wallet server in background
+startWalletServer().catch((error) => {
+  console.error("[MCP] Wallet server failed to start:", error.message);
+  console.error("[MCP] Transaction signing features will not be available");
+});
+
 // Start server
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
   console.error("Web3 Tools MCP Server running on stdio");
+  console.error("Wallet interface available at http://localhost:3456");
 }
 
 main().catch((error) => {

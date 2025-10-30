@@ -3,7 +3,9 @@ import { beforeAll } from 'vitest'
 import { initializeClientManager } from '../src/client.js'
 
 // Load environment variables
-config()
+config({
+  quiet: true
+})
 
 // Global setup for all tests
 beforeAll(() => {

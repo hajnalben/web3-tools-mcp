@@ -5,11 +5,12 @@ A Model Context Protocol (MCP) server for blockchain interactions using [viem](h
 ## Features
 
 - Multi-chain support (Ethereum, Arbitrum, Avalanche, Base, BNB Chain, Gnosis, Sonic, Optimism, Polygon, zkSync Era, Linea, Unichain)
-- Smart contract interactions (read functions, ABI retrieval, source code)
+- **🔐 Transaction Signing via Browser Wallet** (MetaMask, Rabby, Coinbase Wallet)
+- Smart contract interactions (read & write functions, ABI retrieval, source code)
 - Contract simulation & gas estimation (simulate transactions, estimate costs)
 - Real-time gas price tracking (legacy & EIP-1559)
 - ENS resolution (names ↔ addresses, text records, avatars)
-- Token balances (native & ERC20, batch queries)
+- Token balances & transfers (native & ERC20, batch queries)
 - Event log queries with Hypersync acceleration
 - Transaction tracing and analysis
 - Storage slot reading with type decoding
@@ -80,6 +81,35 @@ npx web3-tools-mcp
 | Unichain | 130 | ✅ |
 | Localhost | 31337 | ❌ |
 
+## 🔐 Browser Wallet Integration
+
+The server includes a built-in wallet interface for secure transaction signing without exposing private keys.
+
+### How It Works
+
+1. When you use a transaction tool (e.g., `send_native_token`), the server automatically:
+   - Starts a local web server on `http://localhost:3456`
+   - Opens your browser to connect your wallet (MetaMask, Rabby, Coinbase Wallet, etc.)
+2. You connect your wallet once in the browser
+3. Transaction requests appear in the browser for approval
+4. Sign or reject transactions directly in your wallet
+
+### Supported Wallets
+
+- MetaMask
+- Rabby
+- Coinbase Wallet
+- Any browser wallet supporting EIP-1193
+
+### Manual Access
+
+Visit `http://localhost:3456` anytime to:
+- Check wallet connection status
+- See pending transactions
+- View transaction history
+
+**Note:** The wallet server runs automatically when the MCP server starts. No additional setup required!
+
 ## Available Tools
 
 ### Signatures
@@ -95,9 +125,16 @@ npx web3-tools-mcp
 
 ### Contract Interaction
 - `call_contract_function` - Call view/pure functions (supports batch)
+- `call_contract_write` - Execute state-changing contract functions via browser wallet
+- `simulate_contract` - Simulate contract calls without broadcasting (includes gas estimate)
+
+### Transactions (Browser Wallet Required)
+- `send_native_token` - Send ETH/native tokens to an address
+- `send_erc20_token` - Send ERC20 tokens to an address
+- `sign_message` - Sign messages with your wallet
+- `wallet_status` - Check wallet connection status
 
 ### Gas & Simulation
-- `simulate_contract` - Simulate contract calls without broadcasting (includes gas estimate)
 - `estimate_gas` - Estimate gas cost for any transaction
 - `get_gas_price` - Get current gas prices (legacy & EIP-1559)
 

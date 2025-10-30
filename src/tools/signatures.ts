@@ -6,7 +6,8 @@ import {
   parseAbiItem,
   toBytes,
   toEventSignature,
-  toFunctionSignature
+  toFunctionSignature,
+  encodeFunctionData
 } from 'viem'
 import { z } from 'zod'
 import type { AbiError } from '../types.js'
@@ -120,6 +121,38 @@ export default {
         return formatResponse(results)
       } catch (error) {
         throw new Error(`Failed to parse error ABI: ${error}`)
+      }
+    }
+  ),
+
+  encode_function_data: createTool(
+    'Encode Function Call Data',
+    'Encode a function call with parameters into transaction data. Use this before calling call_contract_write.',
+    z.object({
+      functionAbi: z.string().describe('Function ABI definition (e.g., "function transfer(address to, uint256 amount)")'),
+      args: z.array(z.union([z.string(), z.number(), z.boolean()])).describe('Function arguments in order matching the ABI signature. Automatically type-converted.')
+    }),
+    async (args) => {
+      try {
+        const abiItem = parseAbiItem(args.functionAbi) as AbiFunction
+
+        // Encode the function data
+        const data = encodeFunctionData({
+          abi: [abiItem],
+          functionName: abiItem.name,
+          args: args.args as readonly unknown[]
+        })
+
+        return formatResponse({
+          data,
+          functionName: abiItem.name,
+          functionSignature: toFunctionSignature(abiItem),
+          selector: data.slice(0, 10),
+          encodedArgs: data.slice(10),
+          message: 'Function data encoded successfully. Use this data with call_contract_write tool.'
+        })
+      } catch (error) {
+        throw new Error(`Failed to encode function data: ${error}`)
       }
     }
   )

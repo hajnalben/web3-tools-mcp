@@ -9,6 +9,7 @@ import ensTools from './ens.js'
 import gasTools from './gas.js'
 import logTools from './logs.js'
 import signatureTools from './signatures.js'
+import transactionTools from './transactions.js'
 
 const allToolDefinitions = {
   ...signatureTools,
@@ -18,7 +19,8 @@ const allToolDefinitions = {
   ...logTools,
   ...advancedTools,
   ...ensTools,
-  ...gasTools
+  ...gasTools,
+  ...transactionTools
 } as const
 
 // Register all tools with the MCP server
