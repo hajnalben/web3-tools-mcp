@@ -105,21 +105,58 @@ class WalletServer {
       return
     }
 
-    return new Promise<void>((resolve, reject) => {
-      this.httpServer.listen(this.port, () => {
-        this.isStarted = true
-        console.error(`[Wallet Server] Running on http://localhost:${this.port}`)
-        resolve()
-      }).on('error', (error: NodeJS.ErrnoException) => {
-        if (error.code === 'EADDRINUSE') {
-          console.error(`[Wallet Server] Port ${this.port} already in use, assuming server is already running`)
-          this.isStarted = true
-          resolve()
+    return this.startWithRetry()
+  }
+
+  private async startWithRetry(maxAttempts = 10): Promise<void> {
+    const originalPort = this.port
+    let lastError: Error | null = null
+
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      try {
+        await new Promise<void>((resolve, reject) => {
+          this.httpServer.listen(this.port, () => {
+            this.isStarted = true
+            if (this.port !== originalPort) {
+              console.error(`[Wallet Server] Port ${originalPort} was in use, using port ${this.port} instead`)
+            }
+            console.error(`[Wallet Server] Running on http://localhost:${this.port}`)
+            resolve()
+          }).on('error', (error: NodeJS.ErrnoException) => {
+            if (error.code === 'EADDRINUSE') {
+              reject(error)
+            } else {
+              reject(error)
+            }
+          })
+        })
+        // Success - server started
+        return
+      } catch (error: unknown) {
+        const errnoError = error as NodeJS.ErrnoException
+        if (errnoError.code === 'EADDRINUSE') {
+          lastError = errnoError
+          this.port++
+          console.error(`[Wallet Server] Port ${this.port - 1} in use, trying port ${this.port}...`)
+
+          // Need to recreate the server for the next attempt
+          if (attempt < maxAttempts - 1) {
+            this.httpServer.removeAllListeners()
+            this.httpServer = createServer(this.app)
+            this.wss = new WebSocketServer({ server: this.httpServer })
+            this.setupWebSocket()
+          }
         } else {
-          reject(error)
+          throw error
         }
-      })
-    })
+      }
+    }
+
+    // If we exhausted all attempts
+    throw new Error(
+      `Failed to start wallet server: Ports ${originalPort}-${this.port - 1} are all in use. ` +
+      `Please free up a port or specify a different starting port.`
+    )
   }
 
   async stop() {
