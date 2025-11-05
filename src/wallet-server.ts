@@ -23,7 +23,7 @@ export interface TransactionResponse {
   error?: string
 }
 
-class WalletServer {
+export class WalletServer {
   private app: express.Application
   private httpServer: ReturnType<typeof createServer>
   private wss: WebSocketServer
@@ -108,44 +108,54 @@ class WalletServer {
     return this.startWithRetry()
   }
 
+  private tryListen(port: number): Promise<void> {
+    return new Promise((resolve, reject) => {
+      // Create a fresh server for this attempt
+      const tempServer = createServer(this.app)
+
+      const cleanup = () => {
+        tempServer.removeAllListeners()
+      }
+
+      const onError = (error: NodeJS.ErrnoException) => {
+        cleanup()
+        reject(error)
+      }
+
+      const onListening = () => {
+        cleanup()
+        // Success! Replace our server instance with this working one
+        this.httpServer = tempServer
+        this.wss = new WebSocketServer({ server: this.httpServer })
+        this.setupWebSocket()
+        resolve()
+      }
+
+      tempServer.once('error', onError)
+      tempServer.once('listening', onListening)
+      tempServer.listen(port)
+    })
+  }
+
   private async startWithRetry(maxAttempts = 10): Promise<void> {
     const originalPort = this.port
-    let lastError: Error | null = null
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       try {
-        await new Promise<void>((resolve, reject) => {
-          this.httpServer.listen(this.port, () => {
-            this.isStarted = true
-            if (this.port !== originalPort) {
-              console.error(`[Wallet Server] Port ${originalPort} was in use, using port ${this.port} instead`)
-            }
-            console.error(`[Wallet Server] Running on http://localhost:${this.port}`)
-            resolve()
-          }).on('error', (error: NodeJS.ErrnoException) => {
-            if (error.code === 'EADDRINUSE') {
-              reject(error)
-            } else {
-              reject(error)
-            }
-          })
-        })
+        await this.tryListen(this.port)
+
         // Success - server started
+        this.isStarted = true
+        if (this.port !== originalPort) {
+          console.error(`[Wallet Server] Port ${originalPort} was in use, using port ${this.port} instead`)
+        }
+        console.error(`[Wallet Server] Running on http://localhost:${this.port}`)
         return
       } catch (error: unknown) {
         const errnoError = error as NodeJS.ErrnoException
         if (errnoError.code === 'EADDRINUSE') {
-          lastError = errnoError
+          console.error(`[Wallet Server] Port ${this.port} in use, trying port ${this.port + 1}...`)
           this.port++
-          console.error(`[Wallet Server] Port ${this.port - 1} in use, trying port ${this.port}...`)
-
-          // Need to recreate the server for the next attempt
-          if (attempt < maxAttempts - 1) {
-            this.httpServer.removeAllListeners()
-            this.httpServer = createServer(this.app)
-            this.wss = new WebSocketServer({ server: this.httpServer })
-            this.setupWebSocket()
-          }
         } else {
           throw error
         }
@@ -154,7 +164,7 @@ class WalletServer {
 
     // If we exhausted all attempts
     throw new Error(
-      `Failed to start wallet server: Ports ${originalPort}-${this.port - 1} are all in use. ` +
+      `Failed to start wallet server: Ports ${originalPort}-${originalPort + maxAttempts - 1} are all in use. ` +
       `Please free up a port or specify a different starting port.`
     )
   }
