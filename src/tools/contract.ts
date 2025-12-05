@@ -94,9 +94,12 @@ export default {
           });
 
           // Execute multicall
+          // Use deployless mode for localhost/anvil since Multicall3 may not be deployed
+          const useDeployless = chain === "localhost";
           const multicallResults = await client.multicall({
             contracts: multicallContracts,
             blockNumber: blockTag === "latest" ? undefined : blockTag,
+            ...(useDeployless && { deployless: true }),
           });
 
           // Process results

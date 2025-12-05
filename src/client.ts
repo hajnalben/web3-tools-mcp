@@ -29,11 +29,11 @@ function getRpcUrl(chainName: string, config: Config): string {
       ? `https://eth-mainnet.g.alchemy.com/v2/${config.alchemyApiKey}`
       : config.infuraApiKey
         ? `https://mainnet.infura.io/v3/${config.infuraApiKey}`
-        : 'https://eth.llamarpc.com',
+        : 'https://ethereum-rpc.publicnode.com',
 
     base: config.alchemyApiKey
       ? `https://base-mainnet.g.alchemy.com/v2/${config.alchemyApiKey}`
-      : 'https://base.llamarpc.com',
+      : 'https://base-rpc.publicnode.com',
 
     arbitrum: config.alchemyApiKey
       ? `https://arb-mainnet.g.alchemy.com/v2/${config.alchemyApiKey}`

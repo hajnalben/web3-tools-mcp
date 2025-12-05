@@ -44,6 +44,21 @@ describe('Contract Tools', () => {
       expect(data.chain).toBe('base')
       expect(data.isContract).toBe(false)
     }, 30000)
+
+    it('should identify a contract on Base', async () => {
+      const USDC_BASE = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913'
+
+      const result = await contractTools.is_contract.handler({
+        chain: 'base',
+        address: USDC_BASE
+      })
+
+      const data = JSON.parse(result.content[0].text)
+      expect(data.chain).toBe('base')
+      expect(data.address).toBe(USDC_BASE)
+      expect(data.isContract).toBe(true)
+      expect(data.bytecodeLength).toBeGreaterThan(0)
+    }, 30000)
   })
 
   describe('call_contract_function', () => {
