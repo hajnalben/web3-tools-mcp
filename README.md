@@ -145,10 +145,30 @@ not. Either way the transaction is decoded and simulated first, and that summary
 in the tool response — your phone wallet shows its own preview, so read ours before you
 approve theirs.
 
-### Hosting the MCP Server
+### Hosting Your Own
 
 With WalletConnect there is nothing left that has to run next to you — no browser to open,
-no page to reach — so the server can live in the cloud and still have your phone sign:
+no page to reach — so the server can live in the cloud and still have your phone sign.
+
+Run your own instance rather than sharing one: it keeps your wallet, your API keys and your
+WalletConnect quota to yourself, and there is no multi-tenant server in the middle that
+could send someone else's transaction to your phone.
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/hajnalben/web3-tools-mcp)
+
+Render reads `render.yaml`, generates `MCP_TOKEN` for you and asks for
+`WALLETCONNECT_PROJECT_ID` (free from [dashboard.reown.com](https://dashboard.reown.com)).
+There is also a `Dockerfile`, so Fly, Railway, Cloud Run or your own box work the same way:
+
+```bash
+docker build -t web3-tools-mcp .
+docker run -p 8080:8080 \
+  -e MCP_TOKEN=<long random string> \
+  -e WALLETCONNECT_PROJECT_ID=<id> \
+  web3-tools-mcp
+```
+
+Or without any host at all:
 
 ```bash
 MCP_HTTP_PORT=3457 MCP_TOKEN=<long random string> \
@@ -164,14 +184,16 @@ claude mcp add --transport http web3-tools https://your-host/mcp \
 `/mcp` while your phone is paired can push signing prompts at it. You would still approve
 each one, but that is a phishing surface, not a feature.
 
-On a free tier the filesystem is ephemeral, so set `UPSTASH_REDIS_REST_URL` and
-`UPSTASH_REDIS_REST_TOKEN` ([Upstash](https://upstash.com) has a free plan) and the
-WalletConnect session lives in Redis instead — otherwise you rescan the QR every time the
-instance sleeps. `render.yaml` defines this service alongside the relay.
+Keep the instance awake if you can. Sleeping drops the WalletConnect socket your phone
+pairing depends on, so the first transaction after an idle period waits for the host to wake
+(about a minute on Render's free tier) before it reaches your phone. Where the filesystem is
+also ephemeral — free tiers, containers without a volume — set `UPSTASH_REDIS_REST_URL` and
+`UPSTASH_REDIS_REST_TOKEN` ([Upstash](https://upstash.com) has a free plan) so the pairing
+lives in Redis rather than a file that disappears, otherwise you rescan the QR after every
+sleep.
 
-Two caveats: a sleeping free instance takes about a minute to wake, which the MCP client may
-read as a hang; and a hosted server skips the wallet relay entirely, so WalletConnect is its
-only way to sign.
+A hosted server skips the wallet relay entirely — there is no browser on the host to open —
+so WalletConnect is its only way to sign.
 
 ### Hosting the Wallet Page
 

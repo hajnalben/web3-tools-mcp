@@ -21,7 +21,10 @@ services:
   - type: web
     name: web3-tools-mcp
     runtime: node
-    plan: free
+    # Starter rather than free: a free instance sleeps after 15 minutes, and sleeping drops
+    # the WalletConnect socket your phone pairing depends on. Free works if you accept
+    # re-waking (and a ~1 minute cold start) before the first transaction lands.
+    plan: starter
     buildCommand: npm install && npm run build
     # Render assigns PORT; MCP_HTTP_PORT is what switches stdio off.
     startCommand: MCP_HTTP_PORT=$PORT node dist/index.js
@@ -32,7 +35,8 @@ services:
         generateValue: true
       - key: WALLETCONNECT_PROJECT_ID
         sync: false
-      # A free instance has an ephemeral filesystem, so the pairing lives in Redis.
+      # Optional: only needed where the filesystem is ephemeral (free tiers, containers
+      # without a volume). Without these the pairing is kept in a local file.
       - key: UPSTASH_REDIS_REST_URL
         sync: false
       - key: UPSTASH_REDIS_REST_TOKEN

@@ -1,0 +1,8 @@
+node_modules
+dist
+wallet/dist
+.git
+.env
+test
+.serena
+session-store.db
