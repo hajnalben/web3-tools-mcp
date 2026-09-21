@@ -263,7 +263,14 @@ export class WalletClient {
     // about the request over its own socket and raises itself (tab title + desktop
     // notification); asking the OS to open a URL cannot reliably focus an existing tab —
     // Chrome opens another one — and every attempt to do so left a stray tab behind.
-    if (this.pages === 0) this.openBrowser()
+    if (this.pages === 0) {
+      // Nothing to open a page with and nobody already watching one: waiting out the
+      // timeout would just stall the caller in front of a screen that does not exist.
+      if (!this.canOpenBrowser) {
+        throw new Error(`No wallet page is open. Open ${this.getUrl()}, connect your wallet, then try again.`)
+      }
+      this.openBrowser()
+    }
 
     const deadline = Date.now() + this.signerWaitTimeout
     while (this.signers === 0 && Date.now() < deadline) {
@@ -315,9 +322,13 @@ export class WalletClient {
     return `http://127.0.0.1:${LOCAL_PORTS[0]}/#t=${this.relayOptions.token ?? localToken()}`
   }
 
+  /** A relay we do not own, or a server with no desktop, has no browser for us to open. */
+  private get canOpenBrowser(): boolean {
+    return !this.isRemote && !HOSTED
+  }
+
   openBrowser() {
-    // A relay we do not own, or a server with no desktop, has no browser for us to open.
-    if (this.isRemote || HOSTED) return
+    if (!this.canOpenBrowser) return
     this.lastOpenedAt = Date.now()
     this.open(this.getUrl(), (url) => console.error(`[Wallet] Could not open a browser — visit ${url}`))
   }
