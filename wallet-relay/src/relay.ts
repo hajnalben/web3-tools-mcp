@@ -48,6 +48,9 @@ interface Hello {
 
 const HANDSHAKE_TIMEOUT = 10_000
 
+/** Ports a local relay may occupy, 3456 upward. Requesters scan the same span. */
+export const LOCAL_PORT_ATTEMPTS = 5
+
 /**
  * Rendezvous between transaction requesters (the MCP server) and signers (the browser
  * wallet page). Both sides are WebSocket clients, so the relay runs unchanged whether
@@ -85,8 +88,9 @@ export class WalletRelay {
   async start(): Promise<void> {
     if (this.httpServer) return
 
-    // A fixed PORT (hosted) must fail loudly; a local default may shift if taken.
-    const maxAttempts = process.env.PORT ? 1 : 10
+    // A fixed PORT (hosted) must fail loudly; a local default may shift if taken. The span
+    // must match the one requesters scan, or a relay lands where nobody looks for it.
+    const maxAttempts = process.env.PORT ? 1 : LOCAL_PORT_ATTEMPTS
     const firstPort = this.port
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {

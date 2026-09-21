@@ -3,7 +3,7 @@ import { randomBytes } from 'node:crypto'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { type TransactionRequest, type TransactionResponse, WalletRelay } from 'web3-wallet-relay'
+import { LOCAL_PORT_ATTEMPTS, type TransactionRequest, type TransactionResponse, WalletRelay } from 'web3-wallet-relay'
 import { WebSocket } from 'ws'
 
 const REQUEST_TIMEOUT = 300_000
@@ -31,7 +31,8 @@ function browserApp(userAgent?: string): string | undefined {
 
 // Every MCP process on this machine looks for a relay here before starting one, so all
 // sessions end up sharing a single wallet page instead of each opening its own tab.
-const LOCAL_PORTS = [3456, 3457, 3458, 3459, 3460]
+// Kept in step with the relay: it walks the same span when 3456 is taken.
+const LOCAL_PORTS = Array.from({ length: LOCAL_PORT_ATTEMPTS }, (_, i) => 3456 + i)
 
 /**
  * Token shared by every local session, so a process can join a relay another one owns.
