@@ -1,6 +1,7 @@
 import { encodeFunctionData, maxUint256, parseAbiItem, parseUnits } from 'viem'
 import { describe, expect, it } from 'vitest'
 import { buildTxPreview } from '../src/preview.js'
+import { hasProviderRpc } from './setup.js'
 
 const USDC_BASE = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913'
 const WHALE = '0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb'
@@ -20,7 +21,8 @@ describe('buildTxPreview', () => {
     expect(amount?.warning).toBeDefined()
   })
 
-  it('simulates a transfer and reports the asset change', async () => {
+  // eth_simulateV1 is not served by the public endpoints.
+  it.skipIf(!hasProviderRpc)('simulates a transfer and reports the asset change', async () => {
     const data = encodeFunctionData({
       abi: [parseAbiItem('function transfer(address to, uint256 amount)')],
       args: ['0x1111111254EEB25477B68fb85Ed929f73A960582', parseUnits('1', 6)]

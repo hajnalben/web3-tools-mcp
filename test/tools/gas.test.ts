@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import gasTools from '../../src/tools/gas.js'
+import { hasProviderRpc } from '../setup.js'
 
 describe('Gas Tools', () => {
   describe('get_gas_price', () => {
@@ -211,23 +212,27 @@ describe('Gas Tools', () => {
       expect(data.error).toBeDefined()
     }, 30000)
 
-    it('should simulate at specific block number', async () => {
-      const USDC_CONTRACT = '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48'
-      const HOLDER_ADDRESS = '0x28C6c06298d514Db089934071355E5743bf21d60'
+    it.skipIf(!hasProviderRpc)(
+      'should simulate at specific block number',
+      async () => {
+        const USDC_CONTRACT = '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48'
+        const HOLDER_ADDRESS = '0x28C6c06298d514Db089934071355E5743bf21d60'
 
-      const result = await gasTools.simulate_contract.handler({
-        chain: 'mainnet',
-        contractAddress: USDC_CONTRACT,
-        functionAbi: 'function balanceOf(address owner) view returns (uint256)',
-        args: [HOLDER_ADDRESS],
-        blockNumber: '18000000'
-      })
+        const result = await gasTools.simulate_contract.handler({
+          chain: 'mainnet',
+          contractAddress: USDC_CONTRACT,
+          functionAbi: 'function balanceOf(address owner) view returns (uint256)',
+          args: [HOLDER_ADDRESS],
+          blockNumber: '18000000'
+        })
 
-      const data = JSON.parse(result.content[0].text)
-      expect(data.blockNumber).toBe('18000000')
-      // Should succeed or fail based on whether address had USDC at that block
-      expect(data).toBeDefined()
-    }, 30000)
+        const data = JSON.parse(result.content[0].text)
+        expect(data.blockNumber).toBe('18000000')
+        // Should succeed or fail based on whether address had USDC at that block
+        expect(data).toBeDefined()
+      },
+      30000
+    )
 
     it('should work with different chains', async () => {
       // Use a known contract on Base

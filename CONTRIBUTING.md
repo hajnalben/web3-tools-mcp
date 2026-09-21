@@ -38,9 +38,14 @@ npm test
 
 CI runs all four. `npm run format` before committing is usually all it takes.
 
-Most tests hit live RPC endpoints, so a few are flaky without API keys — the Hypersync
-tests in `test/tools/logs.test.ts` need `HYPERSYNC_API_KEY` and fail without it. Run a
-single file while iterating: `npx vitest run test/preview.test.ts`.
+The tests reach live chains, and a public RPC serves only recent state. Anything needing
+historical state, logs over a past range, `eth_simulateV1` or tracing skips itself when the
+matching credential is absent, so `npm test` is green on a checkout with no `.env` at all —
+it just covers less (88 of 135 tests). For the full run set `ALCHEMY_API_KEY` (or
+`INFURA_API_KEY`, or `CUSTOM_RPC`) and `HYPERSYNC_API_KEY`; tracing also needs Foundry on
+your PATH. The flags live in [test/setup.ts](test/setup.ts).
+
+Run a single file while iterating: `npx vitest run test/preview.test.ts`.
 
 ## Layout
 

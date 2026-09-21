@@ -35,9 +35,13 @@ jobs:
     - name: Run tests
       run: npm test
       env:
-        # Add any required test environment variables here
-        # ETHERSCAN_API_KEY: ${{ secrets.ETHERSCAN_API_KEY }}
-        # ALCHEMY_API_KEY: ${{ secrets.ALCHEMY_API_KEY }}
+        # Optional. The tests reach live chains, and a public RPC serves only recent
+        # state — anything needing historical state, past logs or tracing skips itself
+        # when the matching credential is absent, so a fork with no secrets still runs
+        # green. Set these as repository secrets for full coverage.
+        ALCHEMY_API_KEY: ${{ secrets.ALCHEMY_API_KEY }}
+        ETHERSCAN_API_KEY: ${{ secrets.ETHERSCAN_API_KEY }}
+        HYPERSYNC_API_KEY: ${{ secrets.HYPERSYNC_API_KEY }}
         CI: true
 
     - name: Build

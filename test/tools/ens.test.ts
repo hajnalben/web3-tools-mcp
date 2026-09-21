@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import ensTools from '../../src/tools/ens.js'
+import { hasProviderRpc } from '../setup.js'
 
 describe('ENS Tools', () => {
   describe('resolve_ens_name', () => {
@@ -117,7 +118,8 @@ describe('ENS Tools', () => {
   })
 
   // Base ENS Tests
-  describe('Base ENS Support', () => {
+  // The public Base endpoint rate-limits under the suite's parallel load.
+  describe.skipIf(!hasProviderRpc)('Base ENS Support', () => {
     const BASE_TEST_NAME = 'ben👾the👾dev.base.eth'
     const BASE_TEST_ADDRESS = '0xc880e213f2aB4BAe36C8bF19a6Df6757152242c0'
 

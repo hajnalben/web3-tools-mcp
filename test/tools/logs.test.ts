@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import logsTools from '../../src/tools/logs.js'
+import { hasHypersync, hasProviderRpc } from '../setup.js'
 
 describe('Logs Tools', () => {
-  describe('get_logs', () => {
+  // Every query here reaches back past the public RPC's recent-state window, so it
+  // needs either an archive RPC or the Hypersync fallback's token.
+  describe.skipIf(!hasProviderRpc && !hasHypersync)('get_logs', () => {
     it('should fetch Transfer events from USDC contract', async () => {
       const USDC_CONTRACT = '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48'
 

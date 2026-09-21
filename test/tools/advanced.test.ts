@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import advancedTools from '../../src/tools/advanced.js'
+import { hasAnvil, hasProviderRpc } from '../setup.js'
 
 describe('Advanced Tools', () => {
   describe('get_storage_at', () => {
@@ -68,20 +69,24 @@ describe('Advanced Tools', () => {
       expect(typeof data.decodedValue).toBe('boolean')
     }, 30000)
 
-    it('should read storage at specific block number', async () => {
-      const USDC_CONTRACT = '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48'
+    it.skipIf(!hasProviderRpc)(
+      'should read storage at specific block number',
+      async () => {
+        const USDC_CONTRACT = '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48'
 
-      const result = await advancedTools.get_storage_at.handler({
-        chain: 'mainnet',
-        address: USDC_CONTRACT,
-        slot: '0x0',
-        abiType: 'bytes32',
-        blockNumber: '18000000'
-      })
+        const result = await advancedTools.get_storage_at.handler({
+          chain: 'mainnet',
+          address: USDC_CONTRACT,
+          slot: '0x0',
+          abiType: 'bytes32',
+          blockNumber: '18000000'
+        })
 
-      const data = JSON.parse(result.content[0].text)
-      expect(data.blockNumber).toBe('18000000')
-    }, 30000)
+        const data = JSON.parse(result.content[0].text)
+        expect(data.blockNumber).toBe('18000000')
+      },
+      30000
+    )
   })
 
   describe('get_block_info', () => {
@@ -147,7 +152,8 @@ describe('Advanced Tools', () => {
     }, 30000)
   })
 
-  describe('trace_transaction', () => {
+  // Tracing forks mainnet at a past block, so it needs Foundry and an archive RPC.
+  describe.skipIf(!hasProviderRpc || !hasAnvil)('trace_transaction', () => {
     it('should trace a simple ETH transfer transaction', async () => {
       // A well-known simple ETH transfer
       const TX_HASH = '0x5c504ed432cb51138bcf09aa5e8a410dd4a1e204ef84bfed1be16dfba1b22060'

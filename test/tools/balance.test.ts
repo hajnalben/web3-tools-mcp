@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import balanceTools from '../../src/tools/balance.js'
+import { hasProviderRpc } from '../setup.js'
 
 describe('Balance Tools', () => {
   describe('get_balance', () => {
@@ -79,27 +80,31 @@ describe('Balance Tools', () => {
       expect(data.results[1].decimals).toBe(6)
     }, 30000)
 
-    it('should fetch balance at specific block number', async () => {
-      const VITALIK_ADDRESS = '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045'
-      const BLOCK_NUMBER = '18000000'
+    it.skipIf(!hasProviderRpc)(
+      'should fetch balance at specific block number',
+      async () => {
+        const VITALIK_ADDRESS = '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045'
+        const BLOCK_NUMBER = '18000000'
 
-      const result = await balanceTools.get_balance.handler({
-        queries: [
-          {
-            chain: 'mainnet',
-            address: VITALIK_ADDRESS,
-            blockNumber: BLOCK_NUMBER
-          }
-        ]
-      })
+        const result = await balanceTools.get_balance.handler({
+          queries: [
+            {
+              chain: 'mainnet',
+              address: VITALIK_ADDRESS,
+              blockNumber: BLOCK_NUMBER
+            }
+          ]
+        })
 
-      const data = JSON.parse(result.content[0].text)
-      expect(data.success).toBe(true)
-      expect(data.results).toHaveLength(1)
-      expect(data.results[0].success).toBe(true)
-      expect(data.results[0].blockNumber).toBe(BLOCK_NUMBER)
-      expect(data.results[0].balance).toBeDefined()
-    }, 30000)
+        const data = JSON.parse(result.content[0].text)
+        expect(data.success).toBe(true)
+        expect(data.results).toHaveLength(1)
+        expect(data.results[0].success).toBe(true)
+        expect(data.results[0].blockNumber).toBe(BLOCK_NUMBER)
+        expect(data.results[0].balance).toBeDefined()
+      },
+      30000
+    )
 
     it('should handle zero balance addresses', async () => {
       // Use an address that's extremely unlikely to have balance
