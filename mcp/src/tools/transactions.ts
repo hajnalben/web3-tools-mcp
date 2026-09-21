@@ -401,45 +401,52 @@ export default {
 
   wallet_status: createTool(
     'Wallet Status',
-    'Check if a wallet is connected to the browser interface',
+    'Report every signer and whether it is ready, so a signing tool can be given the right signWith.',
     z.object({}),
     async () => {
-      // A paired phone is the signer of record, so look there first — it needs no page
-      // open and no tab focused.
+      // Both signers are reported, never just the first one found: signWith makes this a
+      // choice the user owns, so the agent has to see everything available.
       const phone = getPhoneSigner()
       const phoneSession = await phone?.session().catch(() => undefined)
-      if (phoneSession) {
-        return formatResponse({
-          connected: true,
-          signer: 'phone',
-          address: phoneSession.accounts[0],
-          wallet: phoneSession.peer,
-          chains: phoneSession.chains,
-          message: 'A phone wallet is paired over WalletConnect. Transactions are sent there for signing.'
-        })
-      }
 
       const wallet = getWalletClient()
-      try {
-        await wallet.connect()
-      } catch (error) {
-        return failure(error, 'Wallet relay unavailable')
+      const relayError = await wallet
+        .connect()
+        .then(() => undefined)
+        .catch((error) => describeError(error))
+
+      const browserReady = !relayError && wallet.isConnected()
+      // Only raise a tab when there is no other way to sign — a status check should not
+      // open a window at someone who is about to use their phone.
+      if (!browserReady && !phoneSession && !relayError) wallet.openBrowser()
+
+      const signers = {
+        phone: phoneSession
+          ? { ready: true, address: phoneSession.accounts[0], wallet: phoneSession.peer, chains: phoneSession.chains }
+          : {
+              ready: false,
+              reason: phone
+                ? 'No phone paired. Run pair_phone_wallet and scan the QR.'
+                : 'Phone signing is not configured — set WALLETCONNECT_PROJECT_ID.'
+            },
+        browser: browserReady
+          ? { ready: true, address: wallet.getAddress(), openTab: wallet.getPageUrl() }
+          : {
+              ready: false,
+              reason: relayError ?? 'No signing page is open.',
+              walletUrl: relayError ? undefined : wallet.getUrl()
+            }
       }
 
-      if (!wallet.isConnected()) wallet.openBrowser()
+      const ready = [phoneSession ? 'phone' : undefined, browserReady ? 'browser' : undefined].filter(Boolean)
+      const message =
+        ready.length === 2
+          ? 'Both signers are ready. Ask the user which one to use, then pass it as signWith.'
+          : ready.length === 1
+            ? `Only ${ready[0]} is ready. Confirm with the user before signing there, or set the other one up.`
+            : `No signer is ready. For a browser, give the user this link and ask them to open it and connect a wallet: ${signers.browser.walletUrl ?? '(relay unavailable)'}. For a phone, run pair_phone_wallet.`
 
-      return formatResponse({
-        connected: wallet.isConnected(),
-        signer: 'browser',
-        phonePairing: phone ? 'Not paired — run pair_phone_wallet to sign from a phone.' : undefined,
-        address: wallet.getAddress(),
-        walletUrl: wallet.getUrl(),
-        openTab: wallet.getPageUrl(),
-        hosted: wallet.isRemote,
-        message: wallet.isConnected()
-          ? 'Wallet is connected and ready to sign transactions'
-          : `No signing page is open. Give the user this link, ask them to open it and connect a wallet, then retry: ${wallet.getUrl()}`
-      })
+      return formatResponse({ ready, signers, message })
     }
   )
 }
