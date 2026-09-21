@@ -1,6 +1,6 @@
 import type { AbiParameter } from 'viem'
+import type { z } from 'zod'
 import type { Config, ToolResult } from './types.js'
-import { z } from 'zod'
 
 // Create tool helper
 export function createTool<T extends z.ZodType>(
@@ -23,7 +23,7 @@ export function convertBigIntToString(obj: unknown): unknown {
     return obj.toString()
   }
   if (Array.isArray(obj)) {
-    return obj.map(item => convertBigIntToString(item))
+    return obj.map((item) => convertBigIntToString(item))
   }
   if (obj && typeof obj === 'object') {
     const converted: Record<string, unknown> = {}
@@ -34,7 +34,6 @@ export function convertBigIntToString(obj: unknown): unknown {
   }
   return obj
 }
-
 
 // Summarize a call trace for compact output
 export interface SummarizedCall {
@@ -73,17 +72,20 @@ export function summarizeTrace(trace: unknown): { hasError: boolean; errorPath: 
     summary = `SUCCESS - ${topCalls.length} top-level calls: ${topCalls.slice(0, 5).join(', ')}${topCalls.length > 5 ? '...' : ''}`
   }
 
-  return { 
-    hasError: result !== null, 
-    errorPath: result?.errorPath ?? null, 
-    summary 
+  return {
+    hasError: result !== null,
+    errorPath: result?.errorPath ?? null,
+    summary
   }
 }
 
 function findErrorInTrace(trace: unknown): { errorPath: SummarizedCall[]; errorMessage: string } | null {
   if (!trace || typeof trace !== 'object') return null
 
-  function findError(call: Record<string, unknown>, path: SummarizedCall[]): { errorPath: SummarizedCall[]; errorMessage: string } | null {
+  function findError(
+    call: Record<string, unknown>,
+    path: SummarizedCall[]
+  ): { errorPath: SummarizedCall[]; errorMessage: string } | null {
     const type = (call.type as string) || 'CALL'
     const error = (call.error as string) || (call.revertReason as string)
     const subcalls = call.calls as Record<string, unknown>[] | undefined
@@ -130,124 +132,64 @@ function findErrorInTrace(trace: unknown): { errorPath: SummarizedCall[]; errorM
   return findError(trace as Record<string, unknown>, [])
 }
 
-// Convert arguments to appropriate types based on ABI
+/**
+ * Coerce a JSON value into what viem expects for an ABI type. Tuples, arrays and anything
+ * else pass through: viem validates them, and guessing here would only mangle them.
+ */
+function coerce(value: unknown, type: string): unknown {
+  if (value === null || value === undefined) return null
+
+  if (type === 'address' || type === 'string' || type.startsWith('bytes')) {
+    return String(value)
+  }
+
+  if (type === 'bool') {
+    if (typeof value === 'boolean') return value
+    if (typeof value === 'string') return value.toLowerCase() === 'true'
+    return Boolean(value)
+  }
+
+  if (type.startsWith('uint') || type.startsWith('int')) {
+    if (typeof value === 'number' || typeof value === 'string') return BigInt(value)
+    throw new Error(`Invalid type for ${type}: ${typeof value}`)
+  }
+
+  return value
+}
+
 export function convertArgumentsToTypes(
   args: (string | number | boolean | null)[],
   abiInputs: readonly AbiParameter[]
 ): unknown[] {
-  return args.map((arg, index) => {
-    if (index >= abiInputs.length) {
-      throw new Error(`Too many arguments provided. Expected ${abiInputs.length}, got ${args.length}`)
-    }
+  if (args.length > abiInputs.length) {
+    throw new Error(`Too many arguments provided. Expected ${abiInputs.length}, got ${args.length}`)
+  }
 
+  return args.map((arg, index) => {
     const param = abiInputs[index]
     if (!param?.type) {
       throw new Error(`Missing type information for parameter at index ${index}`)
     }
-
-    const paramType = param.type
-
-    // Handle null values
-    if (arg === null) {
-      return null
-    }
-
-    // Handle different parameter types
-    if (paramType === 'address') {
-      return String(arg)
-    }
-
-    if (paramType === 'bool') {
-      if (typeof arg === 'boolean') return arg
-      if (typeof arg === 'string') return arg.toLowerCase() === 'true'
-      return Boolean(arg)
-    }
-
-    if (paramType.startsWith('uint') || paramType.startsWith('int')) {
-      if (typeof arg === 'number') return BigInt(arg)
-      if (typeof arg === 'string') return BigInt(arg)
-      throw new Error(`Invalid type for ${paramType}: ${typeof arg}`)
-    }
-
-    if (paramType === 'string') {
-      return String(arg)
-    }
-
-    if (paramType === 'bytes' || paramType.startsWith('bytes')) {
-      return String(arg)
-    }
-
-    // For other types, try to convert appropriately
-    if (typeof arg === 'string' && arg.startsWith('0x')) {
-      return arg // Assume it's already properly formatted
-    }
-    return arg
+    return coerce(arg, param.type)
   })
 }
 
-// Convert event arguments to appropriate types
 export function convertEventArgsToTypes(
   eventArgs: Record<string, unknown>,
   abiInputs: readonly AbiParameter[]
 ): Record<string, unknown> {
-  const converted: Record<string, unknown> = {}
-
-  for (const [argName, argValue] of Object.entries(eventArgs)) {
-    // Find the parameter definition for this argument name
-    const param = abiInputs.find(input => input.name === argName)
-
-    if (!param) {
-      throw new Error(`Parameter '${argName}' not found in event ABI`)
-    }
-
-    if (!param.type) {
-      throw new Error(`Missing type information for parameter '${argName}'`)
-    }
-
-    const paramType = param.type
-
-    // Handle null/undefined values
-    if (argValue === null || argValue === undefined) {
-      converted[argName] = null
-      continue
-    }
-
-    // Handle different parameter types
-    if (paramType === 'address') {
-      converted[argName] = String(argValue)
-    } else if (paramType === 'bool') {
-      if (typeof argValue === 'boolean') {
-        converted[argName] = argValue
-      } else if (typeof argValue === 'string') {
-        converted[argName] = argValue.toLowerCase() === 'true'
-      } else {
-        converted[argName] = Boolean(argValue)
+  return Object.fromEntries(
+    Object.entries(eventArgs).map(([argName, argValue]) => {
+      const param = abiInputs.find((input) => input.name === argName)
+      if (!param) {
+        throw new Error(`Parameter '${argName}' not found in event ABI`)
       }
-    } else if (paramType.startsWith('uint') || paramType.startsWith('int')) {
-      if (typeof argValue === 'number') {
-        converted[argName] = BigInt(argValue)
-      } else if (typeof argValue === 'string') {
-        converted[argName] = BigInt(argValue)
-      } else {
-        throw new Error(`Invalid type for ${paramType}: ${typeof argValue}`)
+      if (!param.type) {
+        throw new Error(`Missing type information for parameter '${argName}'`)
       }
-    } else if (paramType === 'string') {
-      converted[argName] = String(argValue)
-    } else if (paramType === 'bytes' || paramType.startsWith('bytes')) {
-      converted[argName] = String(argValue)
-    } else {
-      // For other types, handle arrays and try to convert appropriately
-      if (Array.isArray(argValue)) {
-        converted[argName] = argValue
-      } else if (typeof argValue === 'string' && argValue.startsWith('0x')) {
-        converted[argName] = argValue // Assume it's already properly formatted
-      } else {
-        converted[argName] = argValue
-      }
-    }
-  }
-
-  return converted
+      return [argName, coerce(argValue, param.type)]
+    })
+  )
 }
 
 // Format response as tool result
@@ -269,7 +211,7 @@ export function parseCommandLineArgs(): Config & { showHelp?: boolean } {
 
   function getArgValue(argName: string): string | undefined {
     const args = process.argv
-    const index = args.findIndex(arg => arg === argName)
+    const index = args.indexOf(argName)
     return index !== -1 && index + 1 < args.length ? args[index + 1] : undefined
   }
 
@@ -291,7 +233,7 @@ export function parseCommandLineArgs(): Config & { showHelp?: boolean } {
   config.walletConnectProjectId = process.env.WALLETCONNECT_PROJECT_ID || getArgValue('--walletconnect-project-id')
 
   // Parse custom RPC URLs
-  const customRpcs = getArgValue('--custom-rpc')
+  const customRpcs = process.env.CUSTOM_RPC || getArgValue('--custom-rpc')
   if (customRpcs) {
     try {
       config.customRpcUrls = JSON.parse(customRpcs)
