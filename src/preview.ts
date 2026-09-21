@@ -244,8 +244,18 @@ export async function buildTxPreview(chain: ChainName, tx: RawTx, from?: string)
   const value = tx.value ? BigInt(tx.value).toString() : undefined
 
   const [decoded, simulation, toLabel] = await Promise.all([
-    decodeCalldata(chain, tx).catch(() => undefined),
-    from ? simulate(chain, tx, from as Address).catch(() => undefined) : Promise.resolve(undefined),
+    // A preview that cannot be built must not block the transaction, but swallowing the
+    // reason makes "no details shown" impossible to diagnose.
+    decodeCalldata(chain, tx).catch((error) => {
+      console.error('[Preview] Could not decode calldata:', error instanceof Error ? error.message : error)
+      return undefined
+    }),
+    from
+      ? simulate(chain, tx, from as Address).catch((error) => {
+          console.error('[Preview] Could not simulate:', error instanceof Error ? error.message : error)
+          return undefined
+        })
+      : Promise.resolve(undefined),
     // The registry's protocol name beats anything on-chain: "Aave", not a proxy's class name.
     Promise.resolve(lookupContract(chain, tx.to))
       .then((entry) => (entry ? protocolLabel(entry.protocol) : addressLabel(chain, tx.to)))

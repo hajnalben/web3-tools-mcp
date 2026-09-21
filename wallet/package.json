@@ -1,6 +1,6 @@
 {
   "name": "web3-wallet-relay",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Browser wallet signing relay for web3-tools-mcp \u2014 runs embedded or on a host",
   "type": "module",
   "main": "dist/relay.js",

@@ -1,6 +1,6 @@
 {
   "name": "web3-tools-mcp",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "description": "Model Context Protocol server for blockchain interactions using viem, Etherscan, and Hypersync",
   "type": "module",
   "main": "dist/index.js",
@@ -57,7 +57,7 @@
     "@walletconnect/sign-client": "^2.25.0",
     "qrcode-terminal": "^0.12.0",
     "viem": "^2.31.4",
-    "web3-wallet-relay": "^1.0.0",
+    "web3-wallet-relay": "^1.1.0",
     "ws": "^8.18.0",
     "zod": "^3.25.76"
   },
