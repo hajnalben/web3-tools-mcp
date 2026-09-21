@@ -96,5 +96,10 @@ npm publish -w web3-wallet-relay   # first when both changed, so the server reso
 npm publish -w web3-tools-mcp
 ```
 
-`mcp/` has no README or LICENSE of its own — a `prepack` script copies the root ones in, so
-there is one copy to keep current. They are gitignored.
+A `prepack` script copies the shared documents into each package at publish time, so there
+is one copy of each to keep current: the licence for both, and the root README and changelog
+for the server — its npm page is the README you are reading this next to. They are
+gitignored. A symlink will not do here: npm silently omits it and the package ships with no
+README at all.
+
+`wallet-relay/` keeps its own README, since it describes a different thing.

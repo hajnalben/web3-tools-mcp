@@ -26,7 +26,8 @@
     "clean": "rm -rf dist",
     "build": "npm run clean && tsc",
     "prepare": "npm run build",
-    "start": "node dist/relay.js"
+    "start": "node dist/relay.js",
+    "prepack": "cp ../LICENSE ."
   },
   "keywords": [
     "ethereum",

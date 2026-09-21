@@ -1,79 +1,179 @@
-# Web3 Tools MCP Server
+<div align="center">
 
-A Model Context Protocol (MCP) server for blockchain interactions using [viem](https://viem.sh/), [Etherscan](https://etherscan.io), and [Hypersync](https://docs.envio.dev/docs/HyperSync/overview).
+# web3-tools-mcp
 
-## Features
+**Your agent proposes the transaction. You approve it — in your own wallet, on your phone.** 📱
 
-- Multi-chain support (Ethereum, Arbitrum, Avalanche, Base, BNB Chain, Gnosis, Sonic, Optimism, Polygon, zkSync Era, Linea, Unichain)
-- **🔐 Transaction signing** in a browser wallet (MetaMask, Rabby, Coinbase) or on your phone over WalletConnect
-- Clear signing: transactions are decoded, named and simulated before you approve them
-- Smart contract interactions (read & write functions, ABI retrieval, source code)
-- Contract simulation & gas estimation (simulate transactions, estimate costs)
-- Real-time gas price tracking (legacy & EIP-1559)
-- ENS resolution (names ↔ addresses, text records, avatars)
-- Token balances & transfers (native & ERC20, batch queries)
-- Event log queries with Hypersync acceleration
-- Transaction tracing and analysis
-- Storage slot reading with type decoding
+30 MCP tools for reading any EVM network and signing transactions in *your own* wallet.
+Every transaction is decoded, named and simulated before you approve it.
 
-## Quick Start
+[![npm](https://img.shields.io/npm/v/web3-tools-mcp?color=%233856d6&label=npm)](https://www.npmjs.com/package/web3-tools-mcp)
+[![downloads](https://img.shields.io/npm/dm/web3-tools-mcp?color=%233856d6)](https://www.npmjs.com/package/web3-tools-mcp)
+[![node](https://img.shields.io/node/v/web3-tools-mcp?color=%233856d6)](https://nodejs.org)
+[![license](https://img.shields.io/npm/l/web3-tools-mcp?color=%233856d6)](LICENSE)
 
-### Claude Code
-```bash
-claude mcp add --scope user --transport stdio web3-tools -- npx -y web3-tools-mcp
-```
+</div>
 
-### Claude Desktop
-Add to `config.json`:
+**Desktop apps** run it locally — paste a few lines of JSON and you are done:
+
 ```json
-{
-  "mcpServers": {
-    "web3-tools": {
-      "command": "npx",
-      "args": ["-y", "web3-tools-mcp"]
-    }
-  }
-}
+{ "mcpServers": { "web3-tools": { "command": "npx", "args": ["-y", "web3-tools-mcp"] } } }
 ```
 
-## API Keys (Optional)
+**Web apps** — ChatGPT, Grok, claude.ai — can only reach a URL, so
+[host it once ↓](#-hosting) and connect with OAuth. No keys to paste, nothing
+running on your laptop.
 
-All API keys are optional. The server uses public RPCs by default. Add keys to unlock additional features:
+It runs with no API keys at all — reads on recent state work on public RPCs, and signing
+previews still decode. Keys widen what it can reach; [see what each unlocks ↓](#-setup).
 
-**Configuration options:**
-- `--etherscan-api-key` or `ETHERSCAN_API_KEY` - Enables contract ABI/source retrieval
-- `--hypersync-api-key` or `HYPERSYNC_API_KEY` - Fast event queries (10-100x faster)
-- `--alchemy-api-key` or `ALCHEMY_API_KEY` - Enhanced RPC reliability
-- `--infura-api-key` or `INFURA_API_KEY` - Additional RPC provider
-- `--custom-rpc` - Custom RPC URLs as JSON
-- `--walletconnect-project-id` or `WALLETCONNECT_PROJECT_ID` - Sign from a phone
+## 🔍 No blind signing
 
-**Wallet relay (all optional):**
-- `WALLET_SERVER_URL` + `WALLET_TOKEN` - Use a hosted relay instead of a local one
-- `PORT`, `HOST`, `WALLET_PUBLIC_URL` - Read by the relay itself when you host it
+Your agent proposes. You see what it actually does, then approve it in your own wallet.
+The server never holds a private key.
 
-**Get free API keys:**
-- Etherscan: [etherscan.io/apis](https://etherscan.io/apis)
-- Hypersync: [hypersync.xyz](https://hypersync.xyz)
-- Alchemy: [alchemy.com](https://alchemy.com)
-- Infura: [infura.io](https://infura.io)
+<table>
+<tr><th>What a wallet usually shows</th><th>What you get here</th></tr>
+<tr><td>
 
-**Example with API keys:**
+```
+To    0x87870Bca…B4fA4E2
+Data  0x617ba037000000000…
+Value 0
+```
+
+*Unknown contract, unknown call.*
+
+</td><td>
+
+```
+Supply · Aave V3
+Amount to supply   250 USDC
+On behalf of       you
+
+−250 USDC  →  +250 aUSDC
+184,207 gas · will succeed
+```
+
+</td></tr>
+</table>
+
+Four things go into that panel:
+
+| | | |
+| --- | --- | --- |
+| 🏷️ | **Intent** | Field labels straight from the protocol, via the [ERC-7730 registry](https://github.com/LedgerHQ/clear-signing-erc7730-registry) — 600+ contracts, 3,000+ selectors, bundled offline and refreshed weekly by a PR |
+| 🔎 | **Decoded call** | Otherwise the function and named arguments, from the verified ABI (Sourcify / Etherscan) — or recovered straight from bytecode with [WhatsABI](https://github.com/shazow/whatsabi) when a contract is unverified. Proxies resolve to their implementation |
+| 💰 | **Real amounts** | Formatted with on-chain decimals and symbol. Unlimited approvals are called out |
+| 🧪 | **Simulation** | `eth_simulateV1` reports the gas and every ERC-20 movement the transaction would cause, marked in or out. A transaction that would revert says so before you can sign it |
+
+## 📱 Sign on your phone
+
+**Your agent runs wherever it likes. Your keys stay in your pocket.**
+
+A phone can't host a local signing page — so it doesn't have to. Point the server at a
+[WalletConnect](https://dashboard.reown.com) project id and it talks to your wallet app
+directly, over WalletConnect's own end-to-end encrypted relay. Nothing to load, nothing to
+host, no browser anywhere in the path.
+
 ```bash
-# Claude Code
-claude mcp add --scope user --transport stdio web3-tools -- npx -y web3-tools-mcp --etherscan-api-key YOUR_KEY --hypersync-api-key YOUR_KEY
-
-# Environment variables
-export ETHERSCAN_API_KEY=your_key
-export HYPERSYNC_API_KEY=your_key
-npx web3-tools-mcp
+npx web3-tools-mcp --walletconnect-project-id YOUR_PROJECT_ID
 ```
 
-## Supported Networks
+| | |
+| --- | --- |
+| 📷 | **Pair once.** Ask the agent to run `pair_phone_wallet`. You get a QR to scan — or, when the agent is already on your phone, a tap-through link straight into your wallet app |
+| 💾 | **It sticks.** The session is stored on disk (or in Redis when hosted), so it survives restarts and redeploys. Pair once, not once a day |
+| ✍️ | **It takes over.** While a phone is paired it signs everything; the browser page takes back over when it isn't |
+| 🧾 | **You still see the decode.** The full preview comes back in the tool response — your wallet shows its own summary, so read ours before you approve theirs |
+| 🔌 | **Drop it any time.** `disconnect_phone_wallet` clears every session and pairing |
+
+Works with **MetaMask · Rabby · Trust · Coinbase Wallet** — anything speaking WalletConnect v2.
+
+> ### ☁️ + 📱 The combination that unlocks everything
+>
+> Because signing no longer needs anything next to you, the server can live in the cloud and
+> **still** have your phone sign. Host it once and every client you own — laptop, browser,
+> the Claude phone app — drives the same instance, with approvals landing on your phone
+> wherever you are. [Hosting takes about a minute ↓](#-hosting)
+
+<details>
+<summary>💻 <b>On a laptop?</b> Sign in the wallet extension you already run — zero configuration</summary>
+
+Nothing to install and nothing to set up: the server serves a local page, and that page talks
+to whatever wallet extension your browser already has. The first transaction opens it, you
+connect MetaMask, Rabby or Coinbase once, and every later request lands in that same tab.
+
+**One relay per machine** — all your editor sessions share the page, so you connect once and
+a transaction from any session shows up there. The page and the server are both clients of a
+local relay on `127.0.0.1:3456` (next free port up to 3460), authenticated with a pairing
+token carried in the URL fragment (`#t=…`) of the link the server prints. The token lives in
+`~/.config/web3-tools-mcp/relay-token` (mode 0600) — delete it to rotate.
+
+Works with MetaMask, Rabby, Coinbase Wallet, and any EIP-1193 browser wallet. `wallet_status`
+returns the page URL any time you want to open it yourself.
+
+</details>
+
+## 🧰 Tools
+
+<details>
+<summary><b>30 tools</b> — reads, writes, ENS, logs, tracing</summary>
+
+### ✍️ Transactions & signing
+| Tool | |
+| --- | --- |
+| `call_contract_write` | Run a state-changing function through your wallet |
+| `send_native_token` | Send ETH or a native token |
+| `send_erc20_token` | Send an ERC-20 |
+| `sign_message` | Sign a message |
+| `wallet_status` | Which signer is connected — phone or browser |
+| `pair_phone_wallet` | Pair a phone over WalletConnect, returns a QR |
+| `disconnect_phone_wallet` | Drop every WalletConnect session and pairing |
+
+### 📜 Contracts
+| Tool | |
+| --- | --- |
+| `call_contract_function` | Call view/pure functions — batched |
+| `simulate_contract` | Simulate without broadcasting, with gas |
+| `get_contract_abi` | ABI, with proxy detection and verification status |
+| `get_contract_source_code` | Verified source, proxies included |
+| `get_contract_source_file` | One file out of the cached source |
+| `is_contract` | Contract or EOA |
+| `encode_function_data` | Calldata from an ABI and arguments |
+| `get_function_signature` | 4-byte selector |
+| `get_event_signature` | 32-byte topic0 |
+| `get_error_signature` | 4-byte error selector |
+
+### ⛓️ Chain data
+| Tool | |
+| --- | --- |
+| `get_balance` | Native or ERC-20 balances — batched |
+| `get_logs` | Query and decode events, with Hypersync fallback |
+| `get_block_info` | Block data |
+| `get_storage_at` | Storage slots, with type decoding |
+| `get_gas_price` | Current gas — legacy and EIP-1559 |
+| `estimate_gas` | Gas for any transaction |
+| `trace_transaction` | Call tree, VM trace, state diff |
+| `debug_call` | Trace a call without broadcasting, falling back to a local anvil fork |
+
+### 🏷️ ENS
+| Tool | |
+| --- | --- |
+| `resolve_ens_name` | Name → address |
+| `reverse_resolve_ens` | Address → name |
+| `get_ens_text_record` | Text records |
+| `get_ens_avatar` | Avatar URI |
+| `batch_resolve_ens_names` | Many names at once |
+
+</details>
+
+<details>
+<summary>🌐 <b>13 networks</b></summary>
 
 | Network | Chain ID | Hypersync |
-|---------|----------|-----------|
-| Ethereum Mainnet | 1 | ✅ |
+| --- | --- | --- |
+| Ethereum | 1 | ✅ |
 | Arbitrum | 42161 | ✅ |
 | Avalanche | 43114 | ✅ |
 | Base | 8453 | ✅ |
@@ -87,260 +187,224 @@ npx web3-tools-mcp
 | Unichain | 130 | ✅ |
 | Localhost | 1337 | ❌ |
 
-## 🔐 Browser Wallet Integration
+Adding one is a single entry in [`mcp/src/chains.ts`](mcp/src/chains.ts).
 
-The server includes a built-in wallet interface for secure transaction signing without exposing private keys.
+</details>
 
-### How It Works
+## 🔧 Setup
 
-1. When you use a transaction tool (e.g., `send_native_token`), the server automatically:
-   - Starts a local wallet relay on `http://127.0.0.1:3456` (the next free port up to 3460)
-   - Opens your browser to connect your wallet (MetaMask, Rabby, Coinbase Wallet, etc.)
-2. You connect your wallet once in the browser
-3. The transaction is decoded and simulated, then the request appears in the browser for approval
-4. Sign or reject transactions directly in your wallet
+| Your client | Runs the server | What to do |
+| --- | --- | --- |
+| 🖥️ **Claude Desktop** | on your machine | Add the JSON below |
+| 🤖 **ChatGPT** | *remote only* | [Host it ↓](#-hosting), then add a connector |
+| 🦾 **Grok** | *remote only* | [Host it ↓](#-hosting), then add a connector |
+| 🌐 **claude.ai** | *remote only* | [Host it ↓](#-hosting), then add a connector |
+| ⌨️ **Claude Code** | on your machine | One command |
+| 🧑‍💻 **Cursor, VS Code, Windsurf, Zed** | on your machine | Add the JSON below |
 
-The browser page and the MCP server are both clients of the relay, authenticated with a
-pairing token that travels in the URL fragment (`#t=…`) of the link the server prints.
+<details>
+<summary>🖥️ <b>Claude Desktop, Cursor, VS Code</b> and other local clients</summary>
 
-**One relay per machine.** Every local MCP process looks for an existing relay on ports
-3456-3460 before starting one, so all your editor sessions share a single wallet page —
-connect once, and a transaction from any session lands in that tab. They authenticate with
-a token kept in `~/.config/web3-tools-mcp/relay-token` (mode 0600); delete it to rotate.
+Add this to the client's MCP config — `claude_desktop_config.json` for Claude Desktop,
+`.cursor/mcp.json` for Cursor, `.vscode/mcp.json` for VS Code — and restart it:
 
-### Before You Sign
-
-Each request shows what the transaction actually does, not just calldata:
-
-- **What it means** — for contracts in the [Ledger ERC-7730 registry](https://github.com/LedgerHQ/clear-signing-erc7730-registry)
-  (651 contracts, 3253 selectors), the protocol's own intent and field labels: *Supply ·
-  Aave · Amount to supply: 250 USDC*, rather than `supply(address,uint256,address,uint16)`.
-  The index ships gzipped (~60KB) and a weekly workflow opens a PR when it changes.
-- **Decoded call** — otherwise the function name and named arguments, from the verified ABI
-  (Sourcify / Etherscan) or, for unverified contracts, from selectors recovered from bytecode
-  via [WhatsABI](https://github.com/shazow/whatsabi). Proxies resolve to their implementation.
-- **Token amounts** — formatted with on-chain decimals and symbol; unlimited approvals are
-  flagged explicitly.
-- **Simulation** — `eth_simulateV1` (falling back to `eth_call` + `estimateGas`) reports the
-  gas estimate and every ERC20 transfer the transaction would cause, marked in/out for your
-  account. A reverting transaction is shown as such before you can approve it.
-
-### Signing From a Phone
-
-A phone cannot run the relay, so it does not have to: with a
-[WalletConnect](https://dashboard.reown.com) project id the MCP server talks to your phone
-wallet directly, over WalletConnect's own (end-to-end encrypted) relay. No page to load,
-nothing to host.
-
-```bash
-npx web3-tools-mcp --walletconnect-project-id YOUR_PROJECT_ID
+```json
+{
+  "mcpServers": {
+    "web3-tools": {
+      "command": "npx",
+      "args": ["-y", "web3-tools-mcp"],
+      "env": {
+        "WALLETCONNECT_PROJECT_ID": "<your project id>",
+        "ETHERSCAN_API_KEY": "<your key>"
+      }
+    }
+  }
+}
 ```
 
-Then ask the agent to pair — `pair_phone_wallet` returns a QR code to scan with MetaMask,
-Rabby, Trust or any WalletConnect wallet. The session is stored in
-`~/.config/web3-tools-mcp/walletconnect.db`, so you pair once and it survives restarts.
+Node.js ≥ 20 has to be on your PATH — `npx` fetches the rest. Drop the whole `env` block if
+you have no keys yet: the server runs without them, with less reach. **🔑 API keys** below
+says exactly what each one turns on.
 
-While a phone is paired it signs everything; the browser page takes over again when it is
-not. Either way the transaction is decoded and simulated first, and that summary comes back
-in the tool response — your phone wallet shows its own preview, so read ours before you
-approve theirs.
+</details>
 
-### Hosting Your Own
-
-With WalletConnect there is nothing left that has to run next to you — no browser to open,
-no page to reach — so the server can live in the cloud and still have your phone sign.
-
-Run your own instance rather than sharing one: it keeps your wallet, your API keys and your
-WalletConnect quota to yourself, and there is no multi-tenant server in the middle that
-could send someone else's transaction to your phone.
-
-[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/hajnalben/web3-tools-mcp)
-
-Render reads `render.yaml`, generates `MCP_TOKEN` for you and asks for
-`WALLETCONNECT_PROJECT_ID` (free from [dashboard.reown.com](https://dashboard.reown.com)).
-Or on [Fly](https://fly.io), where volumes come with any plan, so the pairing survives
-redeploys without paying for a disk:
+<details>
+<summary>⌨️ <b>Claude Code</b></summary>
 
 ```bash
-fly launch --no-deploy --copy-config          # pick a name and region
-fly volumes create data --size 1
-fly secrets set MCP_TOKEN=$(openssl rand -hex 24) WALLETCONNECT_PROJECT_ID=<id>
-fly deploy
+claude mcp add --scope user --transport stdio web3-tools -- npx -y web3-tools-mcp
 ```
 
-There is also a plain `Dockerfile`, so Railway, Cloud Run or your own box work the same way:
-
-```bash
-docker build -t web3-tools-mcp .
-docker run -p 8080:8080 \
-  -e MCP_TOKEN=<long random string> \
-  -e WALLETCONNECT_PROJECT_ID=<id> \
-  web3-tools-mcp
-```
-
-Or without any host at all:
-
-```bash
-MCP_HTTP_PORT=3457 MCP_TOKEN=<long random string> \
-  WALLETCONNECT_PROJECT_ID=<id> npx web3-tools-mcp
-```
+Or, against a hosted instance:
 
 ```bash
 claude mcp add --transport http web3-tools https://your-host/mcp \
   --header "Authorization: Bearer <MCP_TOKEN>"
 ```
 
-Clients that cannot send a header — claude.ai connectors, and so the browser and phone apps
-— use OAuth instead, which the server implements against the same credential: it sends them
-to a page that asks for `MCP_TOKEN` and issues a token once you paste it. Nothing to
-configure, no identity provider, no accounts. Set `MCP_PUBLIC_URL` to the address clients
-reach you on, since OAuth metadata has to advertise it.
+</details>
 
-`MCP_TOKEN` is mandatory and the server refuses to start without it: anyone who can reach
-`/mcp` while your phone is paired can push signing prompts at it. You would still approve
-each one, but that is a phishing surface, not a feature.
+<details>
+<summary>🤖 <b>ChatGPT</b>, 🦾 <b>Grok</b> and 🌐 <b>claude.ai</b> — remote only</summary>
+
+None of these can launch a local process, so they need a hosted instance:
+[deploy one ↓](#-hosting), then point the client at `https://your-host/mcp`.
+
+**ChatGPT** — Settings → Apps & Connectors → Advanced → enable Developer mode, then
+**Create**. Give it a name and the server URL. The URL has to include the `/mcp` path; that
+is the usual mistake. Pick OAuth and it walks you through the login page the server serves,
+or pick token and paste `MCP_TOKEN`. Needs a paid plan.
+
+**Grok** — [grok.com/connectors](https://grok.com/connectors) → **New Connector** →
+**Custom**, then the same URL and authentication. Needs a paid plan.
+
+**claude.ai** — Settings → Connectors → **Add custom connector**, then the URL. It uses
+OAuth, which the server implements against `MCP_TOKEN`: it shows a page asking for the
+token and issues one once you paste it.
+
+Once connected, pair your phone and approvals arrive there — no laptop in the loop at all.
+
+</details>
+
+<details>
+<summary>🔑 <b>API keys</b> — none required, but they decide how much works</summary>
+
+Nothing here is required to start, and the server will not refuse to run without any of it.
+What you lose is reach, not stability — so here is the honest version:
+
+| Key | Free from | Without it |
+| --- | --- | --- |
+| `WALLETCONNECT_PROJECT_ID` | [reown](https://dashboard.reown.com) | 📱 **No phone signing at all.** Browser wallet only, so a hosted instance has no way to sign |
+| `ALCHEMY_API_KEY`<br>or `INFURA_API_KEY`<br>or `CUSTOM_RPC` | [alchemy](https://alchemy.com) · [infura](https://infura.io) | **No historical state.** Public endpoints answer `403 Archive requests require a personal token`, which takes out balances, storage and calls at a past block, event ranges, and `trace_transaction` |
+| `ETHERSCAN_API_KEY` | [etherscan](https://etherscan.io/apis) | `get_contract_abi`, `get_contract_source_code` and `get_contract_source_file` refuse. Signing previews still decode — they try Sourcify first, then recover the ABI from bytecode |
+| `HYPERSYNC_API_KEY` | [envio](https://envio.dev) | Event queries fall back to plain RPC — slower, and past ranges then need one of the provider keys above |
+
+So with nothing configured you get current balances, contract reads, gas, ENS, simulation
+and browser signing. Add `WALLETCONNECT_PROJECT_ID` for your phone and one provider key for
+history, and everything above lights up.
+
+Every key has a matching flag (`--etherscan-api-key`, …), RPC selection falls back
+Alchemy → Infura → public, and `CUSTOM_RPC` overrides all of it.
+`npx web3-tools-mcp --help` lists them; [.env.example](.env.example) documents each one.
+
+```bash
+npx web3-tools-mcp --etherscan-api-key KEY --walletconnect-project-id ID
+```
+
+</details>
+
+## 🚀 Hosting
+
+With WalletConnect nothing has to run next to you, so the server can live in the cloud and
+still have your phone sign. Run your own rather than sharing one: your wallet, your keys,
+your quota, and no multi-tenant server in the middle that could push someone else's
+transaction at your phone.
+
+<a href="https://render.com/deploy?repo=https://github.com/hajnalben/web3-tools-mcp"><img src="https://render.com/images/deploy-to-render-button.svg" alt="Deploy to Render" height="32"></a>
+&nbsp;
+<a href="https://fly.io/docs/launch/"><img src="https://img.shields.io/badge/Deploy%20on-Fly.io-8b5cf6?style=for-the-badge&logo=flydotio&logoColor=white" alt="Deploy on Fly.io" height="32"></a>
+
+**Render** reads `render.yaml`, generates `MCP_TOKEN` and asks for `WALLETCONNECT_PROJECT_ID`
+— genuinely one click.
+
+**Fly** ships no deploy button, so it is four commands. Worth it for a personal instance:
+volumes come with any plan, so the pairing survives redeploys without paying for a disk.
+
+```bash
+fly launch --no-deploy --copy-config
+fly volumes create data --size 1
+fly secrets set MCP_TOKEN=$(openssl rand -hex 24) WALLETCONNECT_PROJECT_ID=<id>
+fly deploy
+```
+
+<details>
+<summary>🐳 <b>Docker, and connecting a client</b></summary>
+
+There is a plain `Dockerfile` too, so Railway, Cloud Run or your own box work the same way:
+
+```bash
+docker run -p 8080:8080 \
+  -e MCP_TOKEN=<long random string> \
+  -e WALLETCONNECT_PROJECT_ID=<id> \
+  web3-tools-mcp
+```
+
+Then point a client at it:
+
+```bash
+claude mcp add --transport http web3-tools https://your-host/mcp \
+  --header "Authorization: Bearer <MCP_TOKEN>"
+```
+
+Clients that cannot send a header — claude.ai connectors, and the browser and phone apps —
+use OAuth, which the server implements against the same credential: it shows a page asking
+for `MCP_TOKEN` and issues a token once you paste it. No identity provider, no accounts. Set
+`MCP_PUBLIC_URL` to the address clients reach you on, since OAuth metadata must advertise it.
+
+> 🔐 **`MCP_TOKEN` is mandatory** and the server refuses to start without it. Anyone who
+> reaches `/mcp` while your phone is paired can push signing prompts at it. You would still
+> approve each one, but that is a phishing surface, not a feature.
 
 Two things decide whether the pairing survives:
 
-- **Keep the instance awake.** Sleeping drops the WalletConnect socket your phone pairing
-  depends on, so the first transaction after an idle period waits for the host to wake
-  (about a minute on a free tier) before it reaches your phone.
-- **Give the session somewhere durable to live.** Most hosts have an ephemeral filesystem,
-  so a plain file is lost on every redeploy and you rescan the QR. Either attach a volume
-  and point `XDG_CONFIG_HOME` at it (what `render.yaml` does), or set
-  `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN`
-  ([Upstash](https://upstash.com) has a free plan) and the session moves to Redis.
+- ⏰ **Keep the instance awake.** Sleeping drops the WalletConnect socket, so the first
+  transaction after an idle period waits for the host to wake — about a minute on a free tier.
+- 💾 **Give the session somewhere durable.** Most hosts have an ephemeral filesystem, so a
+  plain file is lost on redeploy and you rescan the QR. Attach a volume and point
+  `XDG_CONFIG_HOME` at it (what `render.yaml` does), or set `UPSTASH_REDIS_REST_URL` and
+  `UPSTASH_REDIS_REST_TOKEN` ([Upstash](https://upstash.com) has a free plan).
 
-Render's own free Key Value instance is not an option for this: it has no persistence, so
-the pairing would disappear on its next maintenance.
+Render's free Key Value instance is not an option here — no persistence, so the pairing
+disappears at its next maintenance.
 
-A hosted server skips the wallet relay entirely — there is no browser on the host to open —
-so WalletConnect is its only way to sign.
+A hosted server skips the browser relay entirely; WalletConnect is its only way to sign.
 
-### Hosting the Wallet Page
+</details>
 
-The relay lives in its own workspace, [`wallet-relay/`](wallet-relay), and depends only on express, cors
-and ws (~4MB installed, against ~180MB for the MCP server). It deploys on its own to any host
-that keeps a Node process alive and supports WebSockets — Render, Railway, Fly:
+<details>
+<summary>🖇️ <b>Host the signing page</b> separately</summary>
+
+The relay is its own package, [`wallet-relay/`](wallet-relay) — express, cors and ws, about
+4 MB installed against ~180 MB for the server. It runs anywhere that keeps a Node process
+alive and supports WebSockets.
 
 ```bash
-# On the host, from wallet-relay/ — PORT is provided by the platform
-WALLET_TOKEN=<long random string> WALLET_PUBLIC_URL=https://wallet.example.com npm start
+WALLET_TOKEN=<long random string> \
+WALLET_PUBLIC_URL=https://wallet.example.com \
+npx web3-wallet-relay
 ```
 
-Then point the MCP server at it:
+Then point the server at it with `WALLET_SERVER_URL` and the same `WALLET_TOKEN`.
+`render.yaml` deploys it as-is. Anyone holding `WALLET_TOKEN` can send your browser a
+transaction to sign — treat it like a password, and always serve over HTTPS.
+
+Locally nothing changes: the server embeds the same relay.
+
+</details>
+
+## 🔄 How signing works
+
+1. 🤖 A transaction tool runs. The server decodes and simulates the transaction first.
+2. 📨 It reaches your signer — the paired phone, or the browser page.
+3. 👀 You read the summary and approve or reject in your wallet.
+4. 🔗 The result, with an explorer link, comes back to the agent.
+
+## 🛠️ Development
 
 ```bash
-export WALLET_SERVER_URL=https://wallet.example.com
-export WALLET_TOKEN=<the same token>
-npx web3-tools-mcp
-```
-
-`render.yaml` deploys the relay as-is (`rootDir: wallet`, so only its dependencies are
-installed). Anyone holding `WALLET_TOKEN` can send your browser transactions to sign, so
-treat it like a password and always serve the page over HTTPS.
-
-Locally nothing changes: the MCP server embeds the same relay and `npm run start:wallet`
-runs it from the workspace.
-
-### Supported Wallets
-
-- MetaMask
-- Rabby
-- Coinbase Wallet
-- Any browser wallet supporting EIP-1193
-
-### Manual Access
-
-Visit the wallet URL printed by the server (`wallet_status` also returns it) anytime to:
-- Check wallet connection status
-- See pending transactions
-- View transaction history
-
-**Note:** The relay starts automatically with the MCP server. No additional setup required.
-
-## Available Tools
-
-### Signatures
-- `get_function_signature` - Generate 4-byte function selectors
-- `get_event_signature` - Generate 32-byte event topic0 hashes
-- `get_error_signature` - Generate 4-byte error selectors
-- `encode_function_data` - Encode a call's calldata from its ABI and arguments
-
-### Contract Info
-- `get_contract_abi` - Get ABI with proxy detection and verification status
-- `get_contract_source_code` - Get verified source code with proxy support
-- `get_contract_source_file` - Retrieve specific source file from cache
-- `is_contract` - Check if address is contract or EOA
-
-### Contract Interaction
-- `call_contract_function` - Call view/pure functions (supports batch)
-- `call_contract_write` - Execute state-changing contract functions via browser wallet
-- `simulate_contract` - Simulate contract calls without broadcasting (includes gas estimate)
-
-### Transactions (Browser Wallet Required)
-- `send_native_token` - Send ETH/native tokens to an address
-- `send_erc20_token` - Send ERC20 tokens to an address
-- `sign_message` - Sign messages with your wallet
-- `wallet_status` - Check which signer is connected (phone or browser)
-- `pair_phone_wallet` - Pair a phone wallet over WalletConnect, returning a QR to scan
-
-### Gas & Simulation
-- `estimate_gas` - Estimate gas cost for any transaction
-- `get_gas_price` - Get current gas prices (legacy & EIP-1559)
-
-### ENS
-- `resolve_ens_name` - ENS name → address
-- `reverse_resolve_ens` - Address → ENS name
-- `get_ens_text_record` - Get text records (avatar, email, twitter, etc.)
-- `get_ens_avatar` - Get avatar URI
-- `batch_resolve_ens_names` - Batch resolve multiple names
-
-### Balances
-- `get_balance` - Get native or ERC20 balances (supports batch)
-
-### Events & Logs
-- `get_logs` - Query and decode events with Hypersync fallback
-
-### Advanced
-- `get_storage_at` - Read storage slots with type decoding
-- `get_block_info` - Get block data (timestamp, hash, etc.)
-- `trace_transaction` - Trace execution (call tree, VM, state diff)
-- `debug_call` - Trace a call without broadcasting it, falling back to a local anvil fork
-
-## Advanced Configuration
-
-### Custom RPC
-```bash
-npx web3-tools-mcp --custom-rpc '{"mainnet":"https://my-rpc.com","base":"https://base-rpc.com"}'
-```
-Or set `CUSTOM_RPC` to the same JSON, which is what a hosted deployment does. See
-[.env.example](.env.example) for every setting.
-
-### RPC Failover
-Automatic provider selection: Alchemy → Infura → Public RPCs
-
-### Batch Operations
-Many tools support batching for improved efficiency (contract calls, balances, ENS resolution).
-
-## Requirements
-
-- Node.js ≥ 20.0.0
-- Internet connection for RPC calls
-
-## Development
-
-```bash
-npm install && npm run build
-npm run lint          # Biome; `npm run format` fixes what it can
+npm install
+npm run lint       # Biome; npm run format fixes what it can
 npm run typecheck
-npm test              # also: test:watch, test:ui
+npm test
 ```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for running your checkout against a client, the
-repository layout, and how to add a chain or a tool. Release notes are in
-[CHANGELOG.md](CHANGELOG.md).
+Two workspaces: [`mcp/`](mcp) is this server, [`wallet-relay/`](wallet-relay) is the signing
+page. [CONTRIBUTING.md](CONTRIBUTING.md) covers running a checkout against a client, the
+layout, and how to add a chain or a tool. Releases: [CHANGELOG.md](CHANGELOG.md).
 
-## License
+Requires Node.js ≥ 20.
+
+## 📄 License
 
 MIT
