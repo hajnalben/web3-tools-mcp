@@ -86,6 +86,7 @@ npx web3-tools-mcp --walletconnect-project-id YOUR_PROJECT_ID
 
 | | |
 | --- | --- |
+| 🌍 | **Works hosted.** A deployed server can sign on your phone with nothing running beside you — and now in your browser too, from the page it serves itself |
 | 📷 | **Pair once.** Ask the agent to run `pair_phone_wallet`. You get a QR to scan — or, when the agent is already on your phone, a tap-through link straight into your wallet app |
 | 💾 | **It sticks.** The session is stored on disk (or in Redis when hosted), so it survives restarts and redeploys. Pair once, not once a day |
 | ✍️ | **You choose each time.** Every signing tool takes a required `signWith`, so the agent asks whether this one goes to your phone or the browser. A paired phone never quietly claims a request |
@@ -370,7 +371,11 @@ Two things decide whether the pairing survives:
 Render's free Key Value instance is not an option here — no persistence, so the pairing
 disappears at its next maintenance.
 
-A hosted server skips the browser relay entirely; WalletConnect is its only way to sign.
+Both signers work on a hosted instance. The signing page is served from the same port as
+`/mcp`, so `https://your-host/#t=<relay token>` is your wallet page — no second service to
+deploy. Ask the agent for `wallet_status` to get the link; it is behind `MCP_TOKEN`, and the
+relay token is minted fresh each boot rather than stored, so the URL changes when you
+redeploy.
 
 </details>
 

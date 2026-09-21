@@ -3,12 +3,14 @@ import { getOAuthProtectedResourceMetadataUrl, mcpAuthRouter } from '@modelconte
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import express from 'express'
+import type { WalletRelay } from 'web3-wallet-relay'
 import { SingleUserOAuthProvider } from './oauth.js'
 
 /**
  * Serve the MCP over HTTP instead of stdio, so the server can live somewhere other than the
- * machine running the agent. Only worth doing alongside WalletConnect: a hosted server has
- * no browser to open, so a phone wallet is the only way it can have anything signed.
+ * machine running the agent. Signing still reaches you: a paired phone over WalletConnect,
+ * or the signing page, which is mounted on this same server so one platform port carries
+ * both it and /mcp.
  *
  * Two ways in, because clients differ: a static `Authorization: Bearer <MCP_TOKEN>` header
  * (Claude Code), and the OAuth flow the MCP spec defines (claude.ai connectors, which offer
@@ -26,10 +28,12 @@ export interface HttpServerOptions {
   token?: string
   /** Public URL clients reach this server on; OAuth metadata must advertise it. */
   publicUrl?: string
+  /** Serve the signing page on this same server, so browser signing works when hosted. */
+  walletRelay?: WalletRelay
   createMcpServer: () => McpServer
 }
 
-export async function startHttpServer(options: HttpServerOptions): Promise<{ url: string; port: number }> {
+export async function startHttpServer(options: HttpServerOptions): Promise<{ url: string; port: number; walletUrl?: string }> {
   const port = options.port ?? Number(process.env.MCP_HTTP_PORT) ?? DEFAULT_PORT
   const host = options.host ?? process.env.MCP_HTTP_HOST ?? '0.0.0.0'
   const token = options.token ?? process.env.MCP_TOKEN
@@ -99,5 +103,15 @@ export async function startHttpServer(options: HttpServerOptions): Promise<{ url
     listening.once('error', reject)
   })
 
-  return { url: `${publicUrl.replace(/\/$/, '')}/mcp`, port: (server.address() as { port: number }).port }
+  // The signing page rides on this same server, so a hosted deployment can offer browser
+  // signing without a second service: one platform port serves both /mcp and the page.
+  // Mounted last, so the routes above keep their paths — the relay only claims what is
+  // left, which is the static page at the root.
+  let walletUrl: string | undefined
+  if (options.walletRelay) {
+    options.walletRelay.attach(server, (relayApp) => app.use(relayApp))
+    walletUrl = `${publicUrl.replace(/\/$/, '')}/#t=${options.walletRelay.token}`
+  }
+
+  return { url: `${publicUrl.replace(/\/$/, '')}/mcp`, port: (server.address() as { port: number }).port, walletUrl }
 }

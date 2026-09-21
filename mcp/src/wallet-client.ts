@@ -7,6 +7,15 @@ import { LOCAL_PORT_ATTEMPTS, type TransactionRequest, type TransactionResponse,
 import { WebSocket } from 'ws'
 
 const REQUEST_TIMEOUT = 300_000
+
+/** Serving over HTTP means no desktop here: never try to open a browser, and never
+ *  hand out a loopback URL as the place to open the signing page. */
+const HOSTED = Boolean(process.env.MCP_HTTP_PORT)
+
+function pairingUrlFor(port: number, token: string): string {
+  const base = HOSTED ? (process.env.MCP_PUBLIC_URL ?? `http://localhost:${port}`) : `http://127.0.0.1:${port}`
+  return `${base.replace(/\/$/, '')}/#t=${token}`
+}
 const SIGNER_WAIT_TIMEOUT = 30_000
 const CONNECT_ATTEMPTS = 8
 const MAX_CONNECT_BACKOFF = 15_000
@@ -38,7 +47,7 @@ const LOCAL_PORTS = Array.from({ length: LOCAL_PORT_ATTEMPTS }, (_, i) => 3456 +
  * Token shared by every local session, so a process can join a relay another one owns.
  * Stored 0600 because holding it is enough to push transactions at the signer.
  */
-function localToken(): string {
+export function localToken(): string {
   const dir = join(process.env.XDG_CONFIG_HOME ?? join(homedir(), '.config'), 'web3-tools-mcp')
   const file = join(dir, 'relay-token')
 
@@ -144,7 +153,7 @@ export class WalletClient {
     for (const port of ports) {
       try {
         await this.openSocket(`ws://127.0.0.1:${port}`, token)
-        this.pairingUrl = `http://127.0.0.1:${port}/#t=${token}`
+        this.pairingUrl = pairingUrlFor(port, token)
         return
       } catch {
         // Nothing on this port, or something that isn't our relay — keep looking.
@@ -254,7 +263,7 @@ export class WalletClient {
     // about the request over its own socket and raises itself (tab title + desktop
     // notification); asking the OS to open a URL cannot reliably focus an existing tab —
     // Chrome opens another one — and every attempt to do so left a stray tab behind.
-    if (!this.isRemote && this.pages === 0) this.openBrowser()
+    if (this.pages === 0) this.openBrowser()
 
     const deadline = Date.now() + this.signerWaitTimeout
     while (this.signers === 0 && Date.now() < deadline) {
@@ -307,7 +316,8 @@ export class WalletClient {
   }
 
   openBrowser() {
-    if (this.isRemote) return
+    // A relay we do not own, or a server with no desktop, has no browser for us to open.
+    if (this.isRemote || HOSTED) return
     this.lastOpenedAt = Date.now()
     this.open(this.getUrl(), (url) => console.error(`[Wallet] Could not open a browser — visit ${url}`))
   }
@@ -375,7 +385,7 @@ export class WalletClient {
 
 let client: WalletClient | null = null
 
-export function getWalletClient(): WalletClient {
-  if (!client) client = new WalletClient()
+export function getWalletClient(relayOptions?: { port?: number; token?: string }): WalletClient {
+  if (!client) client = new WalletClient(relayOptions)
   return client
 }

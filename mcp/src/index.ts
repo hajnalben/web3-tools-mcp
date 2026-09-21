@@ -2,6 +2,7 @@
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
+import { WalletRelay } from 'web3-wallet-relay'
 import packageJson from '../package.json' with { type: 'json' }
 import { initializeClientManager, SUPPORTED_CHAINS } from './client.js'
 import { startHttpServer } from './http-server.js'
@@ -99,11 +100,25 @@ function createMcpServer() {
   return server
 }
 
-// Serving over HTTP means there is no browser on this machine to open, so the wallet relay
-// is skipped and signing goes to a paired phone over WalletConnect.
 const httpMode = Boolean(process.env.MCP_HTTP_PORT)
+const httpPort = Number(process.env.MCP_HTTP_PORT)
 
-const wallet = getWalletClient()
+/**
+ * Hosted, the signing page rides on the same port as /mcp, so a browser wallet works from
+ * a deployment too — the platform gives one port and both fit on it.
+ *
+ * Its token is minted per boot rather than persisted. A hosted relay is reachable from
+ * anywhere, and the pairing URL is fetched through wallet_status, which already needs
+ * MCP_TOKEN — so nobody types this token, and a short-lived one costs nothing. Locally the
+ * token stays on disk, because several editor sessions have to find the same relay.
+ */
+const hostedRelay = httpMode
+  ? new WalletRelay({ token: process.env.WALLET_TOKEN, publicUrl: process.env.MCP_PUBLIC_URL })
+  : undefined
+
+const wallet = getWalletClient(hostedRelay ? { port: httpPort, token: hostedRelay.token } : undefined)
+
+// Hosted, the relay is attached to the HTTP server, so connect only once that is listening.
 const walletReady = httpMode
   ? Promise.resolve()
   : wallet.connect().catch((error) => {
@@ -130,10 +145,17 @@ process.on('SIGINT', () => shutdown('SIGINT'))
 // Start server
 async function main() {
   if (httpMode) {
-    const { url } = await startHttpServer({ createMcpServer })
+    const { url, walletUrl } = await startHttpServer({ createMcpServer, walletRelay: hostedRelay })
     console.error(`Web3 Tools MCP Server listening on ${url}`)
+
+    // Join the relay now that it is listening, so browser signing is available here too.
+    await wallet.connect().catch((error) => {
+      console.error('[MCP] Could not join the wallet relay:', error.message)
+    })
+    if (walletUrl) console.error(`Wallet interface available at ${walletUrl}`)
+
     if (!config.walletConnectProjectId) {
-      console.error('[MCP] No WalletConnect project id — a hosted server has no way to sign transactions')
+      console.error('[MCP] No WalletConnect project id — phone signing is unavailable on this server')
     }
     return
   }

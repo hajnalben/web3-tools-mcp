@@ -68,14 +68,6 @@ async function signOnPhone(chain: ChainName, tx: RawTx & { data?: string }) {
 async function requestSignature(chain: ChainName, tx: RawTx & { data?: string }, signWith: SignWith) {
   if (signWith === 'phone') return signOnPhone(chain, tx)
 
-  // A hosted server has no browser of its own to open, so say that rather than waiting for
-  // a signer that can never arrive.
-  if (process.env.MCP_HTTP_PORT) {
-    throw new Error(
-      'This server is hosted, so there is no browser wallet to open. Pair a phone with pair_phone_wallet and sign there.'
-    )
-  }
-
   const wallet = getWalletClient()
   await wallet.waitForSigner()
 
@@ -286,11 +278,7 @@ export default {
           }
           signature = await phone!.request('mainnet', 'personal_sign', [toHex(args.message), session.accounts[0]])
         } else {
-          if (process.env.MCP_HTTP_PORT) {
-            throw new Error(
-              'This server is hosted, so there is no browser wallet to open. Pair a phone with pair_phone_wallet and sign there.'
-            )
-          }
+          await getWalletClient().waitForSigner()
           signature = await getWalletClient().request({
             id: generateRequestId(),
             type: 'sign_message',
@@ -416,9 +404,8 @@ export default {
     'Check if a wallet is connected to the browser interface',
     z.object({}),
     async () => {
-      // A paired phone is the signer of record, so look there first. Connecting to the
-      // browser relay before checking would start one on a hosted server, which has no
-      // browser to open it in.
+      // A paired phone is the signer of record, so look there first — it needs no page
+      // open and no tab focused.
       const phone = getPhoneSigner()
       const phoneSession = await phone?.session().catch(() => undefined)
       if (phoneSession) {
@@ -429,20 +416,6 @@ export default {
           wallet: phoneSession.peer,
           chains: phoneSession.chains,
           message: 'A phone wallet is paired over WalletConnect. Transactions are sent there for signing.'
-        })
-      }
-
-      // Served over HTTP means there is no browser on this machine, so the relay must not
-      // be started at all — it would bind a port nobody can reach and advertise a localhost
-      // URL that means nothing to whoever is asking.
-      if (process.env.MCP_HTTP_PORT) {
-        return formatResponse({
-          connected: false,
-          signer: 'none',
-          hosted: true,
-          message: phone
-            ? 'No phone wallet paired. Run pair_phone_wallet — WalletConnect is the only way a hosted server can sign.'
-            : 'This server is hosted and has no WalletConnect project id, so it cannot sign anything. Set WALLETCONNECT_PROJECT_ID.'
         })
       }
 

@@ -81,6 +81,77 @@ describe('WalletRelay', () => {
     expect(await closed).toBe(4001)
   })
 
+  /**
+   * WebSockets ignore the same-origin policy and the local port is predictable, so without
+   * this any page you have open could reach the relay — pushing a transaction at your wallet
+   * or registering as a signer to intercept one. The token alone would not stop it.
+   */
+  describe('origin', () => {
+    function handshake(port: number, origin: string | undefined, hello: Record<string, unknown>) {
+      const ws = new WebSocket(`ws://127.0.0.1:${port}`, origin ? { origin } : {})
+      sockets.push(ws)
+      return new Promise<{ closed?: number; accepted?: boolean }>((resolve) => {
+        ws.once('open', () => ws.send(JSON.stringify(hello)))
+        ws.once('message', () => resolve({ accepted: true }))
+        ws.once('close', (code) => resolve({ closed: code }))
+      })
+    }
+
+    it('refuses a browser on another origin, even with a valid token', async () => {
+      const relay = await startRelay(4110)
+
+      const asSigner = await handshake(relay.getPort(), 'https://evil.example', { token: TOKEN, role: 'signer' })
+      expect(asSigner).toEqual({ closed: 4003 })
+
+      // The dangerous direction: a page that could push a proposal into your wallet.
+      const asRequester = await handshake(relay.getPort(), 'https://evil.example', { token: TOKEN, role: 'requester' })
+      expect(asRequester).toEqual({ closed: 4003 })
+    })
+
+    it('accepts the page it serves itself', async () => {
+      const relay = await startRelay(4111)
+      const result = await handshake(relay.getPort(), `http://127.0.0.1:${relay.getPort()}`, { token: TOKEN, role: 'signer' })
+      expect(result).toEqual({ accepted: true })
+    })
+
+    it('accepts a non-browser client, which sends no origin', async () => {
+      const relay = await startRelay(4112)
+      const result = await handshake(relay.getPort(), undefined, { token: TOKEN, role: 'requester' })
+      expect(result).toEqual({ accepted: true })
+    })
+
+    it('still checks the token once the origin passes', async () => {
+      const relay = await startRelay(4113)
+      const result = await handshake(relay.getPort(), `http://127.0.0.1:${relay.getPort()}`, { token: 'wrong', role: 'signer' })
+      expect(result).toEqual({ closed: 4001 })
+    })
+  })
+
+  it('serves the signing page on a server it does not own', async () => {
+    const app = (await import('express')).default()
+    app.get('/mcp', (_req, res) => res.json({ mine: true }))
+
+    const server = createServer(app)
+    blockers.push(server)
+    await new Promise<void>((resolve) => server.listen(4114, '127.0.0.1', resolve))
+
+    const relay = new WalletRelay({ token: TOKEN, publicUrl: 'http://127.0.0.1:4114' })
+    relays.push(relay)
+    relay.attach(server, (relayApp) => app.use(relayApp))
+
+    // The host's own routes keep their paths; the relay takes what is left.
+    const mcp = await fetch('http://127.0.0.1:4114/mcp')
+    expect(await mcp.json()).toEqual({ mine: true })
+    expect((await fetch('http://127.0.0.1:4114/')).status).toBe(200)
+
+    // And the socket rides the same server, so a page served here can sign.
+    const ws = new WebSocket('ws://127.0.0.1:4114', { origin: 'http://127.0.0.1:4114' })
+    sockets.push(ws)
+    const ready = new Promise((resolve) => ws.once('message', (d: Buffer) => resolve(JSON.parse(d.toString()))))
+    ws.once('open', () => ws.send(JSON.stringify({ token: TOKEN, role: 'signer', address: '0xabc' })))
+    expect(await ready).toMatchObject({ type: 'ready' })
+  })
+
   it('fails the request when no signer is connected', async () => {
     const relay = await startRelay(4102)
 

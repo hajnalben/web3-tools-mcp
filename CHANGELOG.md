@@ -28,6 +28,15 @@ sign it.
 
 ### Changed
 
+- **Browser signing works on a hosted server.** The signing page is served from the same
+  port as `/mcp`, so a deployment offers both signers without a second service. Its relay
+  token is minted per boot rather than persisted: the pairing URL is fetched through
+  `wallet_status`, which already requires `MCP_TOKEN`, so nobody has to type it.
+- **The relay checks the WebSocket `Origin`.** WebSockets ignore the same-origin policy and
+  the local port is predictable, so any page you had open could previously reach the relay
+  and either push a transaction at your wallet or register as a signer to intercept one.
+  A browser on any other origin is now refused before it can present a token at all;
+  non-browser clients send no `Origin` and are still gated by the token.
 - **Signing tools now require `signWith`.** `send_native_token`, `send_erc20_token`,
   `write_contract` and `sign_message` take `phone` or `browser`, with no default, so the
   agent has to ask rather than silently preferring a paired phone. Asking for a signer that

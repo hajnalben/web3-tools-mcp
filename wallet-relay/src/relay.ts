@@ -62,6 +62,8 @@ export const LOCAL_PORT_ATTEMPTS = 5
 export class WalletRelay {
   private app: express.Application
   private httpServer: Server | null = null
+  /** True when the server was handed to us by attach(), so stop() must leave it alone. */
+  private borrowedServer = false
   private wss: WebSocketServer | null = null
   private heartbeat: NodeJS.Timeout | null = null
   private signers = new Map<WebSocket, { address?: string; url?: string; agent?: string }>()
@@ -71,7 +73,7 @@ export class WalletRelay {
   private host: string
   readonly token: string
 
-  constructor(options: { port?: number; host?: string; token?: string } = {}) {
+  constructor(private options: { port?: number; host?: string; token?: string; publicUrl?: string } = {}) {
     this.port = options.port ?? (Number(process.env.PORT) || 3456)
     // Hosted deployments set PORT and need every interface; local runs stay on loopback.
     this.host = options.host ?? process.env.HOST ?? (process.env.PORT ? '0.0.0.0' : '127.0.0.1')
@@ -83,6 +85,28 @@ export class WalletRelay {
     this.app.get('/health', (_req, res) => {
       res.json({ status: 'ok', signers: this.signers.size, requesters: this.requesters.size, pending: this.routes.size })
     })
+  }
+
+  /**
+   * Share a server the caller already owns, instead of listening on a port of our own.
+   *
+   * A hosted deployment gets one port from its platform, and the MCP endpoint is already on
+   * it — so the signing page rides along on the same origin rather than needing a second
+   * service. The page derives its socket from `location`, so same-origin is all it needs.
+   */
+  attach(server: Server, mount: (app: express.Application) => void): void {
+    if (this.httpServer) throw new Error('Relay is already running')
+
+    mount(this.app)
+    this.httpServer = server
+    this.wss = new WebSocketServer({ server })
+    this.wss.on('connection', (ws, req) => this.onConnection(ws, req.headers['user-agent'], req.headers.origin))
+    this.heartbeat = setInterval(() => {
+      for (const ws of this.wss?.clients ?? []) ws.ping()
+    }, 30_000)
+    this.heartbeat.unref()
+    // The caller owns this server's lifetime, so stop() must not close it.
+    this.borrowedServer = true
   }
 
   async start(): Promise<void> {
@@ -97,7 +121,7 @@ export class WalletRelay {
       try {
         this.httpServer = await this.listen(this.port)
         this.wss = new WebSocketServer({ server: this.httpServer })
-        this.wss.on('connection', (ws, req) => this.onConnection(ws, req.headers['user-agent']))
+        this.wss.on('connection', (ws, req) => this.onConnection(ws, req.headers['user-agent'], req.headers.origin))
         // Proxies in front of a hosted relay close idle sockets; keep them warm.
         this.heartbeat = setInterval(() => {
           for (const ws of this.wss?.clients ?? []) ws.ping()
@@ -125,7 +149,42 @@ export class WalletRelay {
     })
   }
 
-  private onConnection(ws: WebSocket, userAgent?: string) {
+  /**
+   * Origins the signing page may legitimately be served from.
+   *
+   * WebSockets are not subject to the same-origin policy, and the local port is
+   * predictable, so without this any site you have open could connect to the relay and
+   * either push a transaction proposal at your wallet page or register as a signer and
+   * intercept one. A browser always sends Origin, so a page on any other site is refused
+   * before it can present a token at all.
+   *
+   * A non-browser client — the MCP server itself — sends no Origin, and the token stays
+   * its only gate. That is not a hole: anything able to forge the header can forge it to
+   * whatever we would accept.
+   */
+  private isAllowedOrigin(origin?: string): boolean {
+    if (!origin) return true
+
+    const allowed = new Set([`http://127.0.0.1:${this.port}`, `http://localhost:${this.port}`])
+    for (const base of [process.env.WALLET_PUBLIC_URL, this.options.publicUrl]) {
+      if (!base) continue
+      try {
+        allowed.add(new URL(base).origin)
+      } catch {
+        // Not a URL we can parse; nothing to allow.
+      }
+    }
+
+    return allowed.has(origin)
+  }
+
+  private onConnection(ws: WebSocket, userAgent?: string, origin?: string) {
+    if (!this.isAllowedOrigin(origin)) {
+      console.error(`[Wallet] Rejected connection from origin ${origin}`)
+      ws.close(4003, 'forbidden origin')
+      return
+    }
+
     const timer = setTimeout(() => ws.close(4001, 'handshake timeout'), HANDSHAKE_TIMEOUT)
 
     ws.once('message', (raw: Buffer) => {
@@ -256,7 +315,7 @@ export class WalletRelay {
    * macOS, which would reach a process holding the wildcard port instead of ours.
    */
   getUrl(): string {
-    const base = process.env.WALLET_PUBLIC_URL ?? `http://127.0.0.1:${this.port}/`
+    const base = process.env.WALLET_PUBLIC_URL ?? (this.borrowedServer ? '/' : `http://127.0.0.1:${this.port}/`)
     return `${base}#t=${this.token}`
   }
 
@@ -265,11 +324,16 @@ export class WalletRelay {
     this.heartbeat = null
     for (const ws of [...this.signers.keys(), ...this.requesters]) ws.close()
     await new Promise<void>((resolve) => (this.wss ? this.wss.close(() => resolve()) : resolve()))
-    // Upgraded sockets keep the HTTP server alive, so drop them rather than wait them out.
-    this.httpServer?.closeAllConnections()
-    await new Promise<void>((resolve) => (this.httpServer ? this.httpServer.close(() => resolve()) : resolve()))
+
+    if (!this.borrowedServer) {
+      // Upgraded sockets keep the HTTP server alive, so drop them rather than wait them out.
+      this.httpServer?.closeAllConnections()
+      await new Promise<void>((resolve) => (this.httpServer ? this.httpServer.close(() => resolve()) : resolve()))
+    }
+
     this.wss = null
     this.httpServer = null
+    this.borrowedServer = false
   }
 }
 
