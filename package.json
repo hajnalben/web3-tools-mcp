@@ -1,7 +1,7 @@
 {
   "name": "web3-tools-mcp",
-  "version": "1.6.0",
-  "description": "Model Context Protocol server for blockchain interactions using viem, Etherscan, and Hypersync",
+  "version": "2.0.0",
+  "description": "Model Context Protocol server for blockchain data and transaction signing — sign in a browser wallet or on your phone, with simulation and ERC-7730 clear signing before you approve",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -11,6 +11,7 @@
   "files": [
     "dist",
     "README.md",
+    "CHANGELOG.md",
     "LICENSE",
     "src"
   ],
@@ -41,7 +42,11 @@
     "ens",
     "ethereum-name-service",
     "model-context-protocol",
-    "ai"
+    "ai",
+    "walletconnect",
+    "clear-signing",
+    "erc-7730",
+    "transaction-signing"
   ],
   "author": "Benjamin Hajnal <hajnalbenjamin@gmail.com>",
   "license": "MIT",
@@ -61,7 +66,7 @@
     "express": "^5.2.1",
     "qrcode-terminal": "^0.12.0",
     "viem": "^2.31.4",
-    "web3-wallet-relay": "^1.1.0",
+    "web3-wallet-relay": "^1.2.0",
     "ws": "^8.18.0",
     "zod": "^3.25.76"
   },

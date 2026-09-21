@@ -2,7 +2,7 @@
 
 Notable changes per release. Dates are release dates; unreleased work sits at the top.
 
-## [2.0.0] — unreleased
+## [2.0.0] — 2026-09-21
 
 The theme is signing: where a transaction can be signed, and what you are told before you
 sign it.
@@ -33,6 +33,7 @@ sign it.
   routing and `--help` all derive from it.
 - Tool errors surface the underlying failure rather than a re-wrapped message that hid it.
 - Biome formats and lints the repo; CI runs lint, typecheck and tests.
+- `web3-wallet-relay` 1.2.0 moves to express 5, matching the server.
 
 ### Fixed
 
