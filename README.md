@@ -145,6 +145,34 @@ not. Either way the transaction is decoded and simulated first, and that summary
 in the tool response — your phone wallet shows its own preview, so read ours before you
 approve theirs.
 
+### Hosting the MCP Server
+
+With WalletConnect there is nothing left that has to run next to you — no browser to open,
+no page to reach — so the server can live in the cloud and still have your phone sign:
+
+```bash
+MCP_HTTP_PORT=3457 MCP_TOKEN=<long random string> \
+  WALLETCONNECT_PROJECT_ID=<id> npx web3-tools-mcp
+```
+
+```bash
+claude mcp add --transport http web3-tools https://your-host/mcp \
+  --header "Authorization: Bearer <MCP_TOKEN>"
+```
+
+`MCP_TOKEN` is mandatory and the server refuses to start without it: anyone who can reach
+`/mcp` while your phone is paired can push signing prompts at it. You would still approve
+each one, but that is a phishing surface, not a feature.
+
+On a free tier the filesystem is ephemeral, so set `UPSTASH_REDIS_REST_URL` and
+`UPSTASH_REDIS_REST_TOKEN` ([Upstash](https://upstash.com) has a free plan) and the
+WalletConnect session lives in Redis instead — otherwise you rescan the QR every time the
+instance sleeps. `render.yaml` defines this service alongside the relay.
+
+Two caveats: a sleeping free instance takes about a minute to wake, which the MCP client may
+read as a hang; and a hosted server skips the wallet relay entirely, so WalletConnect is its
+only way to sign.
+
 ### Hosting the Wallet Page
 
 The relay lives in its own workspace, [`wallet/`](wallet), and depends only on express, cors

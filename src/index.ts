@@ -7,6 +7,7 @@ import { initializeClientManager } from "./client.js";
 import { registerAllTools } from "./tools/index.js";
 import { parseCommandLineArgs } from "./utils.js";
 import { getWalletClient } from "./wallet-client.js";
+import { startHttpServer } from "./http-server.js";
 
 // Parse configuration
 const config = parseCommandLineArgs();
@@ -37,6 +38,10 @@ ENVIRONMENT VARIABLES:
   INFURA_API_KEY                Alternative to --infura-api-key
   HYPERSYNC_API_KEY             Alternative to --hypersync-api-key
   WALLETCONNECT_PROJECT_ID      Alternative to --walletconnect-project-id
+  MCP_HTTP_PORT                 Serve MCP over HTTP on this port instead of stdio
+  MCP_TOKEN                     Bearer token required by the HTTP transport
+  UPSTASH_REDIS_REST_URL        Keep WalletConnect sessions in Redis, not on disk
+  UPSTASH_REDIS_REST_TOKEN
   WALLET_SERVER_URL             URL of a hosted wallet relay (omit to run one locally)
   WALLET_TOKEN                  Shared pairing token for the wallet relay
 
@@ -83,21 +88,26 @@ if (config.customRpcUrls) {
 // Initialize client manager
 initializeClientManager(config);
 
-// Create MCP server instance
-const server = new McpServer({
-  name: "web3-tools-mcp",
-  version: packageJson.version,
-});
+function createMcpServer() {
+  const server = new McpServer({
+    name: "web3-tools-mcp",
+    version: packageJson.version,
+  });
+  registerAllTools(server);
+  return server;
+}
 
-// Register all tools
-registerAllTools(server);
+// Serving over HTTP means there is no browser on this machine to open, so the wallet relay
+// is skipped and signing goes to a paired phone over WalletConnect.
+const httpMode = Boolean(process.env.MCP_HTTP_PORT);
 
-// Connect to the wallet relay (hosted when WALLET_SERVER_URL is set, embedded otherwise)
 const wallet = getWalletClient();
-const walletReady = wallet.connect().catch((error) => {
-  console.error("[MCP] Wallet relay unavailable:", error.message);
-  console.error("[MCP] Transaction signing features will not be available");
-});
+const walletReady = httpMode
+  ? Promise.resolve()
+  : wallet.connect().catch((error) => {
+      console.error("[MCP] Wallet relay unavailable:", error.message);
+      console.error("[MCP] Transaction signing features will not be available");
+    });
 
 // The wallet relay's listening socket keeps the event loop alive, so this process would
 // outlive the client that spawned it and go on holding its port. Leave when the client does.
@@ -117,8 +127,17 @@ process.on("SIGINT", () => shutdown("SIGINT"));
 
 // Start server
 async function main() {
+  if (httpMode) {
+    const { url } = await startHttpServer({ createMcpServer });
+    console.error(`Web3 Tools MCP Server listening on ${url}`);
+    if (!config.walletConnectProjectId) {
+      console.error("[MCP] No WalletConnect project id — a hosted server has no way to sign transactions");
+    }
+    return;
+  }
+
   const transport = new StdioServerTransport();
-  await server.connect(transport);
+  await createMcpServer().connect(transport);
   console.error("Web3 Tools MCP Server running on stdio");
   // The relay may still be picking a free port, and its URL carries the pairing token.
   await walletReady;

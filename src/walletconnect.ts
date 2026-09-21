@@ -2,6 +2,7 @@ import { mkdirSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { getClientManager } from './client.js'
+import { getKeyValueStorage } from './kv-storage.js'
 import type { ChainName } from './types.js'
 
 /**
@@ -49,11 +50,12 @@ export class PhoneSigner {
 
     this.starting = (async () => {
       const SignClient = await importSignClient()
+      // Redis when hosted (a free-tier filesystem is ephemeral, and losing the store means
+      // re-pairing by QR after every sleep); a file next to the other config locally.
+      const storage = getKeyValueStorage()
       this.client = (await SignClient.init({
         projectId: this.projectId,
-        // Keeping the store outside the working directory, so sessions follow the user
-        // rather than wherever the editor happened to launch the server.
-        storageOptions: { database: storePath() },
+        ...(storage ? { storage } : { storageOptions: { database: storePath() } }),
         metadata: {
           name: 'web3-tools-mcp',
           description: 'Blockchain tools for AI agents',
