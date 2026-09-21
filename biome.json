@@ -1,7 +1,13 @@
 {
   "$schema": "https://biomejs.dev/schemas/2.5.14/schema.json",
   "files": {
-    "includes": ["src/**/*.ts", "test/**/*.ts", "wallet/src/**/*.ts", "wallet/public/*.js", "scripts/*.mjs"]
+    "includes": [
+      "mcp/src/**/*.ts",
+      "mcp/test/**/*.ts",
+      "mcp/scripts/*.mjs",
+      "wallet-relay/src/**/*.ts",
+      "wallet-relay/public/*.js"
+    ]
   },
   "formatter": {
     "enabled": true,
@@ -32,7 +38,7 @@
   },
   "overrides": [
     {
-      "includes": ["wallet/public/*.js"],
+      "includes": ["wallet-relay/public/*.js"],
       "linter": {
         "rules": {
           "correctness": {

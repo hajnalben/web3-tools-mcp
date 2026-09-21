@@ -15,12 +15,15 @@ function getRpcUrl(chainName: ChainName, config: Config): string {
   return fallback
 }
 
+/** Named so declaration emit can refer to it: node_modules is hoisted above this package. */
+type PublicClient = ReturnType<typeof createPublicClient>
+
 export class ClientManager {
-  private clients = new Map<ChainName, ReturnType<typeof createPublicClient>>()
+  private clients = new Map<ChainName, PublicClient>()
 
   constructor(private config: Config) {}
 
-  getClient(chainName: ChainName) {
+  getClient(chainName: ChainName): PublicClient {
     const cached = this.clients.get(chainName)
     if (cached) return cached
 
@@ -28,7 +31,7 @@ export class ClientManager {
     const client = createPublicClient({
       chain: CHAINS[chainName].chain,
       transport: http(this.getRpcUrl(chainName))
-    }) as ReturnType<typeof createPublicClient>
+    }) as PublicClient
 
     this.clients.set(chainName, client)
     return client

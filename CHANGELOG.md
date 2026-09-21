@@ -28,7 +28,7 @@ sign it.
 
 ### Changed
 
-- Every supported chain now lives in one table ([src/chains.ts](src/chains.ts)). Adding a
+- Every supported chain now lives in one table ([mcp/src/chains.ts](mcp/src/chains.ts)). Adding a
   chain is a single entry; the tool schemas, RPC selection, explorer links, Hypersync
   routing and `--help` all derive from it.
 - Tool errors surface the underlying failure rather than a re-wrapped message that hid it.

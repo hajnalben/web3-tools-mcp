@@ -219,12 +219,12 @@ so WalletConnect is its only way to sign.
 
 ### Hosting the Wallet Page
 
-The relay lives in its own workspace, [`wallet/`](wallet), and depends only on express, cors
+The relay lives in its own workspace, [`wallet-relay/`](wallet-relay), and depends only on express, cors
 and ws (~4MB installed, against ~180MB for the MCP server). It deploys on its own to any host
 that keeps a Node process alive and supports WebSockets — Render, Railway, Fly:
 
 ```bash
-# On the host, from wallet/ — PORT is provided by the platform
+# On the host, from wallet-relay/ — PORT is provided by the platform
 WALLET_TOKEN=<long random string> WALLET_PUBLIC_URL=https://wallet.example.com npm start
 ```
 

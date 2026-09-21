@@ -29,3 +29,8 @@ Thumbs.db
 
 # Sprite CLI context (organization and sprite names)
 .sprite
+
+# Copied in by mcp's prepack so npm ships them; the originals live at the repo root.
+mcp/README.md
+mcp/LICENSE
+mcp/CHANGELOG.md

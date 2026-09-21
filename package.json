@@ -1,87 +1,25 @@
 {
-  "name": "web3-tools-mcp",
-  "version": "2.0.0",
-  "description": "Model Context Protocol server for blockchain data and transaction signing — sign in a browser wallet or on your phone, with simulation and ERC-7730 clear signing before you approve",
-  "type": "module",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
-  "bin": {
-    "web3-tools-mcp": "dist/index.js"
-  },
-  "files": [
-    "dist",
-    "README.md",
-    "CHANGELOG.md",
-    "LICENSE",
-    "src"
+  "name": "web3-tools-monorepo",
+  "private": true,
+  "description": "Monorepo for web3-tools-mcp and its wallet relay",
+  "license": "MIT",
+  "workspaces": [
+    "wallet-relay",
+    "mcp"
   ],
   "engines": {
     "node": ">=20.0.0"
   },
   "scripts": {
-    "clean": "rm -rf dist",
-    "build": "npm run clean && npm run build -w web3-wallet-relay && tsc && cp src/erc7730-index.json.gz dist/",
-    "watch": "tsc --watch",
-    "typecheck": "tsc -p tsconfig.test.json",
+    "build": "npm run build -w web3-wallet-relay && npm run build -w web3-tools-mcp",
+    "test": "npm test -w web3-tools-mcp",
+    "typecheck": "npm run typecheck -w web3-tools-mcp",
     "lint": "biome check",
     "format": "biome check --write",
-    "start:wallet": "npm start -w web3-wallet-relay",
-    "prepare": "npm run build",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "test:ui": "vitest --ui",
-    "sync:registry": "node scripts/build-erc7730-index.mjs /tmp/erc7730/registry src/erc7730-index.json.gz",
-    "start": "node dist/index.js"
-  },
-  "keywords": [
-    "mcp",
-    "ethereum",
-    "viem",
-    "blockchain",
-    "web3",
-    "ens",
-    "ethereum-name-service",
-    "model-context-protocol",
-    "ai",
-    "walletconnect",
-    "clear-signing",
-    "erc-7730",
-    "transaction-signing"
-  ],
-  "author": "Benjamin Hajnal <hajnalbenjamin@gmail.com>",
-  "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/hajnalben/web3-tools-mcp.git"
-  },
-  "bugs": {
-    "url": "https://github.com/hajnalben/web3-tools-mcp/issues"
-  },
-  "homepage": "https://github.com/hajnalben/web3-tools-mcp#readme",
-  "dependencies": {
-    "@envio-dev/hypersync-client": "^0.6.5",
-    "@modelcontextprotocol/sdk": "^1.20.1",
-    "@shazow/whatsabi": "^0.29.0",
-    "@walletconnect/sign-client": "^2.25.0",
-    "express": "^5.2.1",
-    "qrcode-terminal": "^0.12.0",
-    "viem": "^2.31.4",
-    "web3-wallet-relay": "^1.2.0",
-    "ws": "^8.18.0",
-    "zod": "^3.25.76"
+    "start": "npm start -w web3-tools-mcp",
+    "start:wallet": "npm start -w web3-wallet-relay"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.5.14",
-    "@types/express": "^5.0.6",
-    "@types/node": "^20.19.23",
-    "@types/qrcode-terminal": "^0.12.2",
-    "@types/ws": "^8.5.13",
-    "@vitest/ui": "^3.2.4",
-    "dotenv": "^17.2.3",
-    "typescript": "^5.0.0",
-    "vitest": "^3.2.4"
-  },
-  "workspaces": [
-    "wallet"
-  ]
+    "@biomejs/biome": "^2.5.14"
+  }
 }

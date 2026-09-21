@@ -1,6 +1,6 @@
 node_modules
 dist
-wallet/dist
+wallet-relay/dist
 .git
 .env
 test

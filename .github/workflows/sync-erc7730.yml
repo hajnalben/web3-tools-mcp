@@ -21,12 +21,12 @@ jobs:
         run: git clone --depth 1 https://github.com/LedgerHQ/clear-signing-erc7730-registry.git /tmp/erc7730
 
       - name: Rebuild the index
-        run: node scripts/build-erc7730-index.mjs /tmp/erc7730/registry src/erc7730-index.json.gz
+        run: node mcp/scripts/build-erc7730-index.mjs /tmp/erc7730/registry mcp/src/erc7730-index.json.gz
 
       - name: Open a PR when descriptors changed
         uses: peter-evans/create-pull-request@v6
         with:
-          add-paths: src/erc7730-index.json.gz
+          add-paths: mcp/src/erc7730-index.json.gz
           branch: sync/erc7730
           commit-message: 'chore(clear-signing): refresh the ERC-7730 index'
           title: 'chore(clear-signing): refresh the ERC-7730 index'

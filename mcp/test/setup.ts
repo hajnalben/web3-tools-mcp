@@ -1,9 +1,11 @@
+import { fileURLToPath } from 'node:url'
 import { config } from 'dotenv'
 import { beforeAll } from 'vitest'
 import { isAnvilInstalled } from '../src/anvil.js'
 import { initializeClientManager } from '../src/client.js'
 
-config({ quiet: true })
+// One .env for the whole repo; vitest runs from this package, so resolve it from here.
+config({ path: fileURLToPath(new URL('../../.env', import.meta.url)), quiet: true })
 
 /**
  * These tests hit live chains, and a public RPC only serves recent state. Historical

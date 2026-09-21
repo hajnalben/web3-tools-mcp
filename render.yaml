@@ -4,7 +4,7 @@ services:
     runtime: node
     plan: free
     # Only the relay workspace is installed and built — none of the MCP server's deps.
-    rootDir: wallet
+    rootDir: wallet-relay
     buildCommand: npm install && npm run build
     startCommand: npm start
     healthCheckPath: /health
@@ -27,7 +27,7 @@ services:
     plan: starter
     buildCommand: npm install && npm run build
     # Render assigns PORT; MCP_HTTP_PORT is what switches stdio off.
-    startCommand: MCP_HTTP_PORT=$PORT node dist/index.js
+    startCommand: MCP_HTTP_PORT=$PORT node mcp/dist/index.js
     healthCheckPath: /health
     # Render's filesystem is ephemeral on every plan, so the WalletConnect pairing needs a
     # disk to survive a redeploy — otherwise you rescan the QR each time. A disk costs a few

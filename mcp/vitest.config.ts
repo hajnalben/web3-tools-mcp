@@ -5,7 +5,7 @@ export default defineConfig({
   resolve: {
     // Test the relay workspace from source, so `npm test` doesn't need its build output.
     alias: {
-      'web3-wallet-relay': fileURLToPath(new URL('./wallet/src/relay.ts', import.meta.url))
+      'web3-wallet-relay': fileURLToPath(new URL('../wallet-relay/src/relay.ts', import.meta.url))
     }
   },
   test: {
