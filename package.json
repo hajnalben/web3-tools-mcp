@@ -1,6 +1,6 @@
 {
   "name": "web3-tools-mcp",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "Model Context Protocol server for blockchain interactions using viem, Etherscan, and Hypersync",
   "type": "module",
   "main": "dist/index.js",
@@ -19,13 +19,14 @@
   },
   "scripts": {
     "clean": "rm -rf dist",
-    "build": "npm run clean && npm run build -w web3-wallet-relay && tsc",
+    "build": "npm run clean && npm run build -w web3-wallet-relay && tsc && cp src/erc7730-index.json.gz dist/",
     "watch": "tsc --watch",
     "start:wallet": "npm start -w web3-wallet-relay",
     "prepare": "npm run build",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:ui": "vitest --ui"
+    "test:ui": "vitest --ui",
+    "sync:registry": "node scripts/build-erc7730-index.mjs /tmp/erc7730/registry src/erc7730-index.json.gz"
   },
   "keywords": [
     "mcp",

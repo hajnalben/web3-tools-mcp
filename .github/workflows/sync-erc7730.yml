@@ -1,0 +1,37 @@
+name: Sync ERC-7730 registry
+
+on:
+  schedule:
+    - cron: '0 0 * * 1' # Mondays, 00:00 UTC
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - run: npm ci
+
+      - name: Clone the registry
+        run: git clone --depth 1 https://github.com/LedgerHQ/clear-signing-erc7730-registry.git /tmp/erc7730
+
+      - name: Rebuild the index
+        run: node scripts/build-erc7730-index.mjs /tmp/erc7730/registry src/erc7730-index.json.gz
+
+      - name: Open a PR when descriptors changed
+        uses: peter-evans/create-pull-request@v6
+        with:
+          add-paths: src/erc7730-index.json.gz
+          branch: sync/erc7730
+          commit-message: 'chore(clear-signing): refresh the ERC-7730 index'
+          title: 'chore(clear-signing): refresh the ERC-7730 index'
+          body: |
+            Rebuilt from the Ledger clear-signing registry.
+
+            Review the diff before merging — these descriptors decide what a signer is
+            told a transaction does.

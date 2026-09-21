@@ -631,8 +631,14 @@ function renderTransactionPreview(request) {
         const decoded = preview?.decoded;
 
         if (decoded) {
-            html += `<div class="tx-intent">${esc(decoded.functionName)}
+            // The registry says what the call means ("Supply"); the function name is the detail.
+            const headline = decoded.intent || decoded.functionName;
+            const detail = decoded.intent ? decoded.functionName : '';
+
+            html += `<div class="tx-intent">${esc(headline)}
+                ${decoded.protocol ? `<span class="tx-protocol">${esc(decoded.protocol)}</span>` : ''}
                 <span class="tx-source tx-source-${esc(decoded.source)}">${decoded.source === 'verified' ? 'verified ABI' : 'ABI guessed from bytecode'}</span>
+                ${detail ? `<span class="tx-fn">${esc(detail)}()</span>` : ''}
             </div>`;
         }
 

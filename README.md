@@ -6,6 +6,7 @@ A Model Context Protocol (MCP) server for blockchain interactions using [viem](h
 
 - Multi-chain support (Ethereum, Arbitrum, Avalanche, Base, BNB Chain, Gnosis, Sonic, Optimism, Polygon, zkSync Era, Linea, Unichain)
 - **🔐 Transaction Signing via Browser Wallet** (MetaMask, Rabby, Coinbase Wallet)
+- Clear signing: transactions are decoded, named and simulated before you approve them
 - Smart contract interactions (read & write functions, ABI retrieval, source code)
 - Contract simulation & gas estimation (simulate transactions, estimate costs)
 - Real-time gas price tracking (legacy & EIP-1559)
@@ -46,6 +47,10 @@ All API keys are optional. The server uses public RPCs by default. Add keys to u
 - `--infura-api-key` or `INFURA_API_KEY` - Additional RPC provider
 - `--custom-rpc` - Custom RPC URLs as JSON
 
+**Wallet relay (all optional):**
+- `WALLET_SERVER_URL` + `WALLET_TOKEN` - Use a hosted relay instead of a local one
+- `PORT`, `HOST`, `WALLET_PUBLIC_URL` - Read by the relay itself when you host it
+
 **Get free API keys:**
 - Etherscan: [etherscan.io/apis](https://etherscan.io/apis)
 - Hypersync: [hypersync.xyz](https://hypersync.xyz)
@@ -79,7 +84,7 @@ npx web3-tools-mcp
 | zkSync Era | 324 | ✅ |
 | Linea | 59144 | ✅ |
 | Unichain | 130 | ✅ |
-| Localhost | 31337 | ❌ |
+| Localhost | 1337 | ❌ |
 
 ## 🔐 Browser Wallet Integration
 
@@ -88,7 +93,7 @@ The server includes a built-in wallet interface for secure transaction signing w
 ### How It Works
 
 1. When you use a transaction tool (e.g., `send_native_token`), the server automatically:
-   - Starts a local wallet relay on `http://localhost:3456`
+   - Starts a local wallet relay on `http://127.0.0.1:3456` (the next free port up to 3460)
    - Opens your browser to connect your wallet (MetaMask, Rabby, Coinbase Wallet, etc.)
 2. You connect your wallet once in the browser
 3. The transaction is decoded and simulated, then the request appears in the browser for approval
@@ -106,9 +111,13 @@ a token kept in `~/.config/web3-tools-mcp/relay-token` (mode 0600); delete it to
 
 Each request shows what the transaction actually does, not just calldata:
 
-- **Decoded call** — function name and named arguments, from the verified ABI (Sourcify /
-  Etherscan) or, for unverified contracts, from selectors recovered from bytecode via
-  [WhatsABI](https://github.com/shazow/whatsabi). Proxies are resolved to their implementation.
+- **What it means** — for contracts in the [Ledger ERC-7730 registry](https://github.com/LedgerHQ/clear-signing-erc7730-registry)
+  (651 contracts, 3253 selectors), the protocol's own intent and field labels: *Supply ·
+  Aave · Amount to supply: 250 USDC*, rather than `supply(address,uint256,address,uint16)`.
+  The index ships gzipped (~60KB) and a weekly workflow opens a PR when it changes.
+- **Decoded call** — otherwise the function name and named arguments, from the verified ABI
+  (Sourcify / Etherscan) or, for unverified contracts, from selectors recovered from bytecode
+  via [WhatsABI](https://github.com/shazow/whatsabi). Proxies resolve to their implementation.
 - **Token amounts** — formatted with on-chain decimals and symbol; unlimited approvals are
   flagged explicitly.
 - **Simulation** — `eth_simulateV1` (falling back to `eth_call` + `estimateGas`) reports the
@@ -163,6 +172,7 @@ Visit the wallet URL printed by the server (`wallet_status` also returns it) any
 - `get_function_signature` - Generate 4-byte function selectors
 - `get_event_signature` - Generate 32-byte event topic0 hashes
 - `get_error_signature` - Generate 4-byte error selectors
+- `encode_function_data` - Encode a call's calldata from its ABI and arguments
 
 ### Contract Info
 - `get_contract_abi` - Get ABI with proxy detection and verification status
@@ -202,6 +212,7 @@ Visit the wallet URL printed by the server (`wallet_status` also returns it) any
 - `get_storage_at` - Read storage slots with type decoding
 - `get_block_info` - Get block data (timestamp, hash, etc.)
 - `trace_transaction` - Trace execution (call tree, VM, state diff)
+- `debug_call` - Trace a call without broadcasting it, falling back to a local anvil fork
 
 ## Advanced Configuration
 

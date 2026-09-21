@@ -9,8 +9,9 @@ import {
   toFunctionSelector
 } from 'viem'
 import { simulateBlocks } from 'viem/actions'
-import { whatsabi } from '@shazow/whatsabi'
 import { getClientManager } from './client.js'
+import { addressLabel, loadAbi, tokenMeta, UNLIMITED_THRESHOLD } from './chain-meta.js'
+import { lookupContract, protocolLabel, resolveClearSigning } from './clear-signing.js'
 import type { ChainName } from './types.js'
 
 export interface PreviewField {
@@ -46,6 +47,9 @@ export interface TxPreview {
     functionName: string
     signature: string
     fields: PreviewField[]
+    /** From the ERC-7730 registry: what this call means, and whose contract it is. */
+    intent?: string
+    protocol?: string
     /** 'verified' = ABI from Sourcify/Etherscan, 'guessed' = selector lookup on bytecode */
     source: 'verified' | 'guessed'
     proxy?: string
@@ -64,103 +68,13 @@ export interface RawTx {
   value?: string
 }
 
-const ERC20_META_ABI = [
-  parseAbiItem('function decimals() view returns (uint8)'),
-  parseAbiItem('function symbol() view returns (string)')
-]
-
 const TRANSFER_TOPIC = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef'
-const MAX_UINT256 = (1n << 256n) - 1n
-const UNLIMITED_THRESHOLD = MAX_UINT256 / 2n
 
 // Selectors whose amount argument is denominated in the token at tx.to.
 const ERC20_AMOUNT_ARGS: Record<string, { arg: string; approval?: boolean }> = {
   [toFunctionSelector('function approve(address,uint256)')]: { arg: 'amount', approval: true },
   [toFunctionSelector('function transfer(address,uint256)')]: { arg: 'amount' },
   [toFunctionSelector('function transferFrom(address,address,uint256)')]: { arg: 'amount' }
-}
-
-const abiCache = new Map<string, { abi: Abi; source: 'verified' | 'guessed'; proxy?: string; name?: string }>()
-const labelCache = new Map<string, string | undefined>()
-const metaCache = new Map<string, { symbol?: string; decimals?: number }>()
-
-async function loadAbi(chain: ChainName, address: string) {
-  const key = `${chain}:${address.toLowerCase()}`
-  const cached = abiCache.get(key)
-  if (cached) return cached
-
-  const clientManager = getClientManager()
-  const client = clientManager.getClient(chain)
-  const etherscanApiKey = clientManager.getConfig().etherscanApiKey
-
-  const loaders: whatsabi.loaders.ABILoader[] = [new whatsabi.loaders.SourcifyABILoader({ chainId: clientManager.getChainId(chain) })]
-  if (etherscanApiKey) {
-    loaders.push(new whatsabi.loaders.EtherscanV2ABILoader({ apiKey: etherscanApiKey, chainId: clientManager.getChainId(chain) }))
-  }
-
-  const result = await whatsabi.autoload(address as Address, {
-    provider: client,
-    abiLoader: new whatsabi.loaders.MultiABILoader(loaders),
-    signatureLookup: new whatsabi.loaders.OpenChainSignatureLookup(),
-    followProxies: true
-  })
-
-  // Bytecode-guessed ABIs carry no argument names; verified ones do.
-  const source = result.abi.some((item) => item.type === 'function' && item.inputs?.some((i) => i.name)) ? 'verified' : 'guessed'
-  const loaded = {
-    abi: result.abi as Abi,
-    source: source as 'verified' | 'guessed',
-    proxy: result.address !== address ? result.address : undefined,
-    name: result.contractResult?.name ?? undefined
-  }
-  abiCache.set(key, loaded)
-  return loaded
-}
-
-async function tokenMeta(chain: ChainName, token: string) {
-  const key = `${chain}:${token.toLowerCase()}`
-  const cached = metaCache.get(key)
-  if (cached) return cached
-
-  const client = getClientManager().getClient(chain)
-  const [decimals, symbol] = await client.multicall({
-    contracts: [
-      { address: token as Address, abi: ERC20_META_ABI, functionName: 'decimals' },
-      { address: token as Address, abi: ERC20_META_ABI, functionName: 'symbol' }
-    ],
-    ...(chain === 'localhost' && { deployless: true })
-  })
-
-  const meta = {
-    decimals: decimals.status === 'success' ? Number(decimals.result) : undefined,
-    symbol: symbol.status === 'success' ? (symbol.result as string) : undefined
-  }
-  metaCache.set(key, meta)
-  return meta
-}
-
-/**
- * Human label for an address: token symbol first (more recognisable than the contract
- * name — "USDC" beats "FiatTokenProxy"), then the verified contract name. EOAs get none,
- * and the bytecode check keeps us from asking explorers about plain wallets.
- */
-async function addressLabel(chain: ChainName, address: string): Promise<string | undefined> {
-  const key = `${chain}:${address.toLowerCase()}`
-  if (labelCache.has(key)) return labelCache.get(key)
-
-  let label: string | undefined
-  try {
-    const code = await getClientManager().getClient(chain).getBytecode({ address: address as Address })
-    if (code && code !== '0x') {
-      label = (await tokenMeta(chain, address).catch(() => ({ symbol: undefined }))).symbol
-      if (!label) label = (await loadAbi(chain, address)).name
-    }
-  } catch {
-    // Unknown address — show it bare rather than failing the preview.
-  }
-
-  labelCache.set(key, label)
-  return label
 }
 
 function stringify(value: unknown): string {
@@ -221,6 +135,34 @@ async function decodeCalldata(chain: ChainName, tx: RawTx): Promise<TxPreview['d
   const signature = abiItem
     ? `${functionName}(${inputs.map((i) => `${i.type}${i.name ? ` ${i.name}` : ''}`).join(', ')})`
     : functionName
+
+  // Map positional args to their parameter names so registry field paths resolve.
+  const named: Record<string, unknown> = {}
+  inputs.forEach((input, i) => {
+    if (input.name) named[input.name] = (args ?? [])[i]
+  })
+
+  // A registry descriptor says what the call means and how the protocol wants each field
+  // labelled, which beats raw ABI argument names. Fall back to those when it has none.
+  const clearSigning = await resolveClearSigning(chain, tx, named).catch(() => null)
+  if (clearSigning) {
+    return {
+      functionName,
+      signature,
+      source,
+      proxy,
+      intent: clearSigning.intent,
+      protocol: clearSigning.protocol,
+      fields: clearSigning.fields.map((field) => ({
+        name: field.label,
+        type: field.format,
+        value: field.value,
+        ...(field.address && { address: field.address }),
+        ...(field.name && { label: field.name }),
+        ...(field.value.startsWith('Unlimited') && { warning: 'Unlimited spending approval' })
+      }))
+    }
+  }
 
   return { functionName, signature, fields, source, proxy }
 }
@@ -304,7 +246,10 @@ export async function buildTxPreview(chain: ChainName, tx: RawTx, from?: string)
   const [decoded, simulation, toLabel] = await Promise.all([
     decodeCalldata(chain, tx).catch(() => undefined),
     from ? simulate(chain, tx, from as Address).catch(() => undefined) : Promise.resolve(undefined),
-    addressLabel(chain, tx.to).catch(() => undefined)
+    // The registry's protocol name beats anything on-chain: "Aave", not a proxy's class name.
+    Promise.resolve(lookupContract(chain, tx.to))
+      .then((entry) => (entry ? protocolLabel(entry.protocol) : addressLabel(chain, tx.to)))
+      .catch(() => undefined)
   ])
 
   return {
