@@ -31,6 +31,16 @@ const METHODS = ['eth_sendTransaction', 'personal_sign', 'eth_signTypedData_v4']
 const EVENTS = ['chainChanged', 'accountsChanged']
 const APPROVAL_TIMEOUT = 300_000
 
+/**
+ * Where this server lives, as shown to the wallet. A hosted server knows its public URL;
+ * a local one is only reachable from the machine it runs on, and says so.
+ */
+function serverUrl(): string {
+  if (process.env.MCP_PUBLIC_URL) return process.env.MCP_PUBLIC_URL.replace(/\/$/, '')
+  if (process.env.MCP_HTTP_PORT) return `http://localhost:${process.env.MCP_HTTP_PORT}`
+  return 'http://localhost'
+}
+
 function storePath(): string {
   const dir = join(process.env.XDG_CONFIG_HOME ?? join(homedir(), '.config'), 'web3-tools-mcp')
   mkdirSync(dir, { recursive: true, mode: 0o700 })
@@ -56,10 +66,13 @@ export class PhoneSigner {
       this.client = (await SignClient.init({
         projectId: this.projectId,
         ...(storage ? { storage } : { storageOptions: { database: storePath() } }),
+        // The wallet shows this in its approval dialogs, so it has to identify the server
+        // asking for the signature. Pointing it at the source repository made Rabby display
+        // "github" — as if GitHub were requesting it.
         metadata: {
           name: 'web3-tools-mcp',
           description: 'Blockchain tools for AI agents',
-          url: 'https://github.com/hajnalben/web3-tools-mcp',
+          url: serverUrl(),
           icons: []
         }
       })) as SignClientType
