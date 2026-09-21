@@ -30,7 +30,9 @@ COPY package.json ./
 ENV MCP_HTTP_PORT=8080
 EXPOSE 8080
 
-# Runs unprivileged: this process holds API keys and can ask a wallet to sign.
-USER node
+# Starts as root only long enough to take ownership of a mounted volume, then drops to the
+# unprivileged `node` user. See docker-entrypoint.sh.
+COPY docker-entrypoint.sh /usr/local/bin/
+ENTRYPOINT ["docker-entrypoint.sh"]
 
 CMD ["node", "dist/index.js"]

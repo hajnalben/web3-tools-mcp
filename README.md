@@ -158,7 +158,17 @@ could send someone else's transaction to your phone.
 
 Render reads `render.yaml`, generates `MCP_TOKEN` for you and asks for
 `WALLETCONNECT_PROJECT_ID` (free from [dashboard.reown.com](https://dashboard.reown.com)).
-There is also a `Dockerfile`, so Fly, Railway, Cloud Run or your own box work the same way:
+Or on [Fly](https://fly.io), where volumes come with any plan, so the pairing survives
+redeploys without paying for a disk:
+
+```bash
+fly launch --no-deploy --copy-config          # pick a name and region
+fly volumes create data --size 1
+fly secrets set MCP_TOKEN=$(openssl rand -hex 24) WALLETCONNECT_PROJECT_ID=<id>
+fly deploy
+```
+
+There is also a plain `Dockerfile`, so Railway, Cloud Run or your own box work the same way:
 
 ```bash
 docker build -t web3-tools-mcp .
