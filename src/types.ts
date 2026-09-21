@@ -17,21 +17,7 @@ export interface Config {
   walletConnectProjectId?: string
 }
 
-// Chain names
-export type ChainName =
-  | 'mainnet'
-  | 'arbitrum'
-  | 'avalanche'
-  | 'base'
-  | 'bnb'
-  | 'gnosis'
-  | 'sonic'
-  | 'optimism'
-  | 'polygon'
-  | 'zksync'
-  | 'linea'
-  | 'unichain'
-  | 'localhost'
+export type { ChainName } from './chains.js'
 
 // Tool handler result type
 export interface ToolResult {

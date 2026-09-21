@@ -1,17 +1,8 @@
-import {
-  type Abi,
-  type AbiFunction,
-  type Address,
-  decodeFunctionData,
-  formatEther,
-  formatUnits,
-  parseAbiItem,
-  toFunctionSelector
-} from 'viem'
+import { type AbiFunction, type Address, decodeFunctionData, formatEther, formatUnits, toFunctionSelector } from 'viem'
 import { simulateBlocks } from 'viem/actions'
-import { getClientManager } from './client.js'
 import { addressLabel, loadAbi, tokenMeta, UNLIMITED_THRESHOLD } from './chain-meta.js'
 import { lookupContract, protocolLabel, resolveClearSigning } from './clear-signing.js'
+import { getClientManager } from './client.js'
 import type { ChainName } from './types.js'
 
 export interface PreviewField {
@@ -266,7 +257,7 @@ export async function buildTxPreview(chain: ChainName, tx: RawTx, from?: string)
     chain,
     to: tx.to,
     toLabel,
-    explorer: `https://${getClientManager().getEtherscanDomain(chain)}`,
+    explorer: getClientManager().explorerUrl(chain),
     value,
     valueFormatted: value && value !== '0' ? formatEther(BigInt(value)) : undefined,
     decoded,

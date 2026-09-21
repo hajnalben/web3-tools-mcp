@@ -1,7 +1,7 @@
 import { isAddress } from 'viem'
 import { z } from 'zod'
+import { getClientManager, SUPPORTED_CHAINS } from '../client.js'
 import type { ChainName } from '../types.js'
-import { CHAINS, getClientManager, SUPPORTED_CHAINS } from '../client.js'
 import { createTool, formatResponse } from '../utils.js'
 
 // Type for raw Etherscan contract info
@@ -44,11 +44,7 @@ function getCacheKey(chainId: number, address: string): string {
 }
 
 // Shared helper to fetch contract info from Etherscan (with caching)
-async function fetchContractInfo(
-  chainId: number,
-  address: string,
-  etherscanApiKey: string
-): Promise<EtherscanContractInfo> {
+async function fetchContractInfo(chainId: number, address: string, etherscanApiKey: string): Promise<EtherscanContractInfo> {
   // Check cache first
   const cacheKey = getCacheKey(chainId, address)
   const cached = contractCache.get(cacheKey)
@@ -98,9 +94,7 @@ export default {
       chain: z.enum(SUPPORTED_CHAINS).describe('The blockchain network to use'),
       address: z.string().describe('The contract address to get ABI for'),
       include: z
-        .array(
-          z.enum(['abi', 'implementationAbi', 'metadata', 'compilation', 'creation', 'stats'])
-        )
+        .array(z.enum(['abi', 'implementationAbi', 'metadata', 'compilation', 'creation', 'stats']))
         .optional()
         .describe(
           'Optional: specify which data to include. Options: "abi" (contract ABI), "implementationAbi" (proxy implementation ABI), "metadata" (name, verification), "compilation" (compiler, optimization), "creation" (creator, tx), "stats" (function/event counts). Defaults to ["abi", "metadata"] for minimal context usage.'
@@ -124,8 +118,7 @@ export default {
       const include = args.include || ['abi', 'metadata']
       const includeSet = new Set(include)
 
-      const chains = CHAINS(config)
-      const chainId = chains[args.chain as ChainName].chain.id
+      const chainId = getClientManager().getChainId(args.chain as ChainName)
 
       // Use shared helper to fetch contract info
       const contractInfo = await fetchContractInfo(chainId, args.address, config.etherscanApiKey)
@@ -153,7 +146,7 @@ export default {
         chain: args.chain,
         chainId,
         address: args.address,
-        etherscanUrl: `https://${clientManager.getEtherscanDomain(args.chain as ChainName)}/address/${args.address}`
+        etherscanUrl: clientManager.explorerUrl(args.chain as ChainName, `/address/${args.address}`)
       }
 
       // Add metadata if requested
@@ -292,201 +285,189 @@ export default {
       const config = (clientManager as any).config
 
       if (!config.etherscanApiKey) {
-        throw new Error(
-          'Etherscan API key is required. Use --etherscan-api-key or set ETHERSCAN_API_KEY environment variable.'
-        )
+        throw new Error('Etherscan API key is required. Use --etherscan-api-key or set ETHERSCAN_API_KEY environment variable.')
       }
 
       if (!isAddress(args.address)) {
         throw new Error('Invalid contract address')
       }
 
-      const chains = CHAINS(config)
-      const chainId = chains[args.chain as ChainName].chain.id
+      const chainId = getClientManager().getChainId(args.chain as ChainName)
 
-      try {
-        // Fetch main contract source using shared helper
-        const contractInfo = await fetchContractInfo(chainId, args.address, config.etherscanApiKey)
+      // Fetch main contract source using shared helper
+      const contractInfo = await fetchContractInfo(chainId, args.address, config.etherscanApiKey)
 
-        if (!contractInfo) {
-          throw new Error('No contract information found')
-        }
+      if (!contractInfo) {
+        throw new Error('No contract information found')
+      }
 
-        const isVerified = contractInfo.SourceCode !== ''
-        const isProxy = contractInfo.Proxy === '1'
+      const isVerified = contractInfo.SourceCode !== ''
+      const isProxy = contractInfo.Proxy === '1'
 
-        if (!isVerified) {
-          return formatResponse({
-            success: false,
-            chain: args.chain,
-            chainId,
-            address: args.address,
-            isVerified: false,
-            message: 'Contract source code is not verified on Etherscan',
-            etherscanUrl: `https://${clientManager.getEtherscanDomain(args.chain as ChainName)}/address/${args.address}`
-          })
-        }
-
-        // Parse source code
-        let sourceFiles: Record<string, string> = {}
-        let sourceCodeString = contractInfo.SourceCode
-
-        // Handle multi-file sources (wrapped in {{ }} or [ ])
-        if (sourceCodeString.startsWith('{{') || sourceCodeString.startsWith('[')) {
-          try {
-            // Remove outer braces/brackets if present
-            if (sourceCodeString.startsWith('{{')) {
-              sourceCodeString = sourceCodeString.slice(1, -1)
-            }
-            const parsed = JSON.parse(sourceCodeString)
-
-            if (parsed.sources) {
-              // Standard JSON format
-              sourceFiles = Object.fromEntries(
-                Object.entries(parsed.sources).map(([path, data]: [string, any]) => [path, data.content || ''])
-              )
-            } else if (typeof parsed === 'object') {
-              // Simple object format
-              sourceFiles = parsed
-            }
-          } catch {
-            // If parsing fails, treat as single file
-            sourceFiles = { [contractInfo.ContractName + '.sol']: sourceCodeString }
-          }
-        } else {
-          // Single file source
-          sourceFiles = { [contractInfo.ContractName + '.sol']: sourceCodeString }
-        }
-
-        // Calculate file stats for summary mode
-        const fileStats = Object.entries(sourceFiles).map(([path, content]) => ({
-          path,
-          lines: (content as string).split('\n').length,
-          size: (content as string).length
-        }))
-
-        const result: Record<string, unknown> = {
-          success: true,
+      if (!isVerified) {
+        return formatResponse({
+          success: false,
           chain: args.chain,
           chainId,
           address: args.address,
-          isVerified: true,
-          isProxy,
-          contractName: contractInfo.ContractName,
-          compilerVersion: contractInfo.CompilerVersion,
-          optimizationUsed: contractInfo.OptimizationUsed === '1',
-          optimizationRuns: parseInt(contractInfo.Runs) || 0,
-          evmVersion: contractInfo.EVMVersion,
-          licenseType: contractInfo.LicenseType,
-          constructorArguments: contractInfo.ConstructorArguments,
-          fileCount: Object.keys(sourceFiles).length,
-          totalLines: fileStats.reduce((sum, stat) => sum + stat.lines, 0),
-          etherscanUrl: `https://${clientManager.getEtherscanDomain(args.chain as ChainName)}/address/${args.address}#code`
-        }
-
-        // Add source based on includeSource parameter
-        if (args.includeSource === 'full') {
-          result.sourceFiles = sourceFiles
-        } else if (args.includeSource === 'summary') {
-          result.files = fileStats
-        }
-        // 'none' mode: no source files added
-
-        // If proxy and implementation requested, fetch implementation source
-        if (
-          isProxy &&
-          args.includeImplementation &&
-          contractInfo.Implementation &&
-          isAddress(contractInfo.Implementation)
-        ) {
-          try {
-            const implInfo = await fetchContractInfo(chainId, contractInfo.Implementation, config.etherscanApiKey)
-
-            if (implInfo && implInfo.SourceCode !== '') {
-              // Parse implementation source code
-              let implSourceFiles: Record<string, string> = {}
-              let implSourceCodeString = implInfo.SourceCode
-
-              if (implSourceCodeString.startsWith('{{') || implSourceCodeString.startsWith('[')) {
-                try {
-                  if (implSourceCodeString.startsWith('{{')) {
-                    implSourceCodeString = implSourceCodeString.slice(1, -1)
-                  }
-                  const parsed = JSON.parse(implSourceCodeString)
-
-                  if (parsed.sources) {
-                    implSourceFiles = Object.fromEntries(
-                      Object.entries(parsed.sources).map(([path, data]: [string, any]) => [path, data.content || ''])
-                    )
-                  } else if (typeof parsed === 'object') {
-                    implSourceFiles = parsed
-                  }
-                } catch {
-                  implSourceFiles = { [implInfo.ContractName + '.sol']: implSourceCodeString }
-                }
-              } else {
-                implSourceFiles = { [implInfo.ContractName + '.sol']: implSourceCodeString }
-              }
-
-              // Calculate implementation file stats
-              const implFileStats = Object.entries(implSourceFiles).map(([path, content]) => ({
-                path,
-                lines: (content as string).split('\n').length,
-                size: (content as string).length
-              }))
-
-              const implResult: Record<string, unknown> = {
-                address: contractInfo.Implementation,
-                contractName: implInfo.ContractName,
-                compilerVersion: implInfo.CompilerVersion,
-                optimizationUsed: implInfo.OptimizationUsed === '1',
-                optimizationRuns: parseInt(implInfo.Runs) || 0,
-                evmVersion: implInfo.EVMVersion,
-                licenseType: implInfo.LicenseType,
-                fileCount: Object.keys(implSourceFiles).length,
-                totalLines: implFileStats.reduce((sum, stat) => sum + stat.lines, 0),
-                etherscanUrl: `https://${clientManager.getEtherscanDomain(args.chain as ChainName)}/address/${contractInfo.Implementation}#code`
-              }
-
-              // Add implementation source based on includeSource parameter
-              if (args.includeSource === 'full') {
-                implResult.sourceFiles = implSourceFiles
-              } else if (args.includeSource === 'summary') {
-                implResult.files = implFileStats
-              }
-
-              result.implementation = implResult
-
-              // Update cache with implementation source (rawInfo already cached by fetchContractInfo)
-              if (contractInfo.Implementation) {
-                const implCacheKey = getCacheKey(chainId, contractInfo.Implementation)
-                const existingImpl = contractCache.get(implCacheKey)!
-                contractCache.set(implCacheKey, {
-                  ...existingImpl,
-                  sourceFiles: implSourceFiles
-                })
-              }
-            }
-          } catch (error) {
-            // Implementation fetch failed, continue without it
-            result.implementationError = error instanceof Error ? error.message : 'Failed to fetch implementation source'
-          }
-        } else if (isProxy && contractInfo.Implementation) {
-          result.implementationAddress = contractInfo.Implementation
-        }
-
-        // Update cache with main contract source (rawInfo already cached by fetchContractInfo)
-        const cacheKey = getCacheKey(chainId, args.address)
-        const existing = contractCache.get(cacheKey)!
-        contractCache.set(cacheKey, {
-          ...existing,
-          sourceFiles
+          isVerified: false,
+          message: 'Contract source code is not verified on Etherscan',
+          etherscanUrl: clientManager.explorerUrl(args.chain as ChainName, `/address/${args.address}`)
         })
-
-        return formatResponse(result)
-      } catch (error) {
-        throw new Error(`Failed to fetch source code: ${error}`)
       }
+
+      // Parse source code
+      let sourceFiles: Record<string, string> = {}
+      let sourceCodeString = contractInfo.SourceCode
+
+      // Handle multi-file sources (wrapped in {{ }} or [ ])
+      if (sourceCodeString.startsWith('{{') || sourceCodeString.startsWith('[')) {
+        try {
+          // Remove outer braces/brackets if present
+          if (sourceCodeString.startsWith('{{')) {
+            sourceCodeString = sourceCodeString.slice(1, -1)
+          }
+          const parsed = JSON.parse(sourceCodeString)
+
+          if (parsed.sources) {
+            // Standard JSON format
+            sourceFiles = Object.fromEntries(
+              Object.entries(parsed.sources).map(([path, data]: [string, any]) => [path, data.content || ''])
+            )
+          } else if (typeof parsed === 'object') {
+            // Simple object format
+            sourceFiles = parsed
+          }
+        } catch {
+          // If parsing fails, treat as single file
+          sourceFiles = { [`${contractInfo.ContractName}.sol`]: sourceCodeString }
+        }
+      } else {
+        // Single file source
+        sourceFiles = { [`${contractInfo.ContractName}.sol`]: sourceCodeString }
+      }
+
+      // Calculate file stats for summary mode
+      const fileStats = Object.entries(sourceFiles).map(([path, content]) => ({
+        path,
+        lines: (content as string).split('\n').length,
+        size: (content as string).length
+      }))
+
+      const result: Record<string, unknown> = {
+        success: true,
+        chain: args.chain,
+        chainId,
+        address: args.address,
+        isVerified: true,
+        isProxy,
+        contractName: contractInfo.ContractName,
+        compilerVersion: contractInfo.CompilerVersion,
+        optimizationUsed: contractInfo.OptimizationUsed === '1',
+        optimizationRuns: parseInt(contractInfo.Runs, 10) || 0,
+        evmVersion: contractInfo.EVMVersion,
+        licenseType: contractInfo.LicenseType,
+        constructorArguments: contractInfo.ConstructorArguments,
+        fileCount: Object.keys(sourceFiles).length,
+        totalLines: fileStats.reduce((sum, stat) => sum + stat.lines, 0),
+        etherscanUrl: clientManager.explorerUrl(args.chain as ChainName, `/address/${args.address}#code`)
+      }
+
+      // Add source based on includeSource parameter
+      if (args.includeSource === 'full') {
+        result.sourceFiles = sourceFiles
+      } else if (args.includeSource === 'summary') {
+        result.files = fileStats
+      }
+      // 'none' mode: no source files added
+
+      // If proxy and implementation requested, fetch implementation source
+      if (isProxy && args.includeImplementation && contractInfo.Implementation && isAddress(contractInfo.Implementation)) {
+        try {
+          const implInfo = await fetchContractInfo(chainId, contractInfo.Implementation, config.etherscanApiKey)
+
+          if (implInfo && implInfo.SourceCode !== '') {
+            // Parse implementation source code
+            let implSourceFiles: Record<string, string> = {}
+            let implSourceCodeString = implInfo.SourceCode
+
+            if (implSourceCodeString.startsWith('{{') || implSourceCodeString.startsWith('[')) {
+              try {
+                if (implSourceCodeString.startsWith('{{')) {
+                  implSourceCodeString = implSourceCodeString.slice(1, -1)
+                }
+                const parsed = JSON.parse(implSourceCodeString)
+
+                if (parsed.sources) {
+                  implSourceFiles = Object.fromEntries(
+                    Object.entries(parsed.sources).map(([path, data]: [string, any]) => [path, data.content || ''])
+                  )
+                } else if (typeof parsed === 'object') {
+                  implSourceFiles = parsed
+                }
+              } catch {
+                implSourceFiles = { [`${implInfo.ContractName}.sol`]: implSourceCodeString }
+              }
+            } else {
+              implSourceFiles = { [`${implInfo.ContractName}.sol`]: implSourceCodeString }
+            }
+
+            // Calculate implementation file stats
+            const implFileStats = Object.entries(implSourceFiles).map(([path, content]) => ({
+              path,
+              lines: (content as string).split('\n').length,
+              size: (content as string).length
+            }))
+
+            const implResult: Record<string, unknown> = {
+              address: contractInfo.Implementation,
+              contractName: implInfo.ContractName,
+              compilerVersion: implInfo.CompilerVersion,
+              optimizationUsed: implInfo.OptimizationUsed === '1',
+              optimizationRuns: parseInt(implInfo.Runs, 10) || 0,
+              evmVersion: implInfo.EVMVersion,
+              licenseType: implInfo.LicenseType,
+              fileCount: Object.keys(implSourceFiles).length,
+              totalLines: implFileStats.reduce((sum, stat) => sum + stat.lines, 0),
+              etherscanUrl: clientManager.explorerUrl(args.chain as ChainName, `/address/${contractInfo.Implementation}#code`)
+            }
+
+            // Add implementation source based on includeSource parameter
+            if (args.includeSource === 'full') {
+              implResult.sourceFiles = implSourceFiles
+            } else if (args.includeSource === 'summary') {
+              implResult.files = implFileStats
+            }
+
+            result.implementation = implResult
+
+            // Update cache with implementation source (rawInfo already cached by fetchContractInfo)
+            if (contractInfo.Implementation) {
+              const implCacheKey = getCacheKey(chainId, contractInfo.Implementation)
+              const existingImpl = contractCache.get(implCacheKey)!
+              contractCache.set(implCacheKey, {
+                ...existingImpl,
+                sourceFiles: implSourceFiles
+              })
+            }
+          }
+        } catch (error) {
+          // Implementation fetch failed, continue without it
+          result.implementationError = error instanceof Error ? error.message : 'Failed to fetch implementation source'
+        }
+      } else if (isProxy && contractInfo.Implementation) {
+        result.implementationAddress = contractInfo.Implementation
+      }
+
+      // Update cache with main contract source (rawInfo already cached by fetchContractInfo)
+      const cacheKey = getCacheKey(chainId, args.address)
+      const existing = contractCache.get(cacheKey)!
+      contractCache.set(cacheKey, {
+        ...existing,
+        sourceFiles
+      })
+
+      return formatResponse(result)
     }
   ),
 
@@ -505,8 +486,7 @@ export default {
     }),
     async (args) => {
       const clientManager = getClientManager()
-      const chains = CHAINS((clientManager as any).config)
-      const chainId = chains[args.chain as ChainName].chain.id
+      const chainId = clientManager.getChainId(args.chain as ChainName)
 
       if (!isAddress(args.address)) {
         throw new Error('Invalid contract address')
@@ -528,8 +508,7 @@ export default {
           chain: args.chain,
           chainId,
           address: args.address,
-          message:
-            'Contract not in cache. Use get_contract_source_code with includeSource="full" first to cache the contract.'
+          message: 'Contract not in cache. Use get_contract_source_code with includeSource="full" first to cache the contract.'
         })
       }
 

@@ -1,16 +1,8 @@
 import { HypersyncClient, type Log, LogField } from '@envio-dev/hypersync-client'
-import {
-  type AbiEvent,
-  type Address,
-  isAddress,
-  keccak256,
-  parseAbiItem,
-  toBytes,
-  toEventSignature
-} from 'viem'
+import { type AbiEvent, type Address, isAddress, keccak256, parseAbiItem, toBytes, toEventSignature } from 'viem'
 import { z } from 'zod'
+import { getClientManager, SUPPORTED_CHAINS } from '../client.js'
 import type { ChainName } from '../types.js'
-import { getClientManager, HYPERSYNC_URLS, SUPPORTED_CHAINS } from '../client.js'
 import { convertEventArgsToTypes, createTool, formatResponse } from '../utils.js'
 
 async function getLogsWithHypersync(
@@ -22,7 +14,7 @@ async function getLogsWithHypersync(
   toBlock?: string,
   eventArgs?: Record<string, unknown>
 ) {
-  const hypersyncUrl = HYPERSYNC_URLS[chainName]
+  const hypersyncUrl = getClientManager().getHypersyncUrl(chainName)
   if (!hypersyncUrl) {
     throw new Error(`Hypersync not supported for chain: ${chainName}`)
   }
@@ -41,7 +33,7 @@ async function getLogsWithHypersync(
 
   // Add indexed parameter filtering if eventArgs provided
   if (eventArgs && Object.keys(eventArgs).length > 0) {
-    const indexedInputs = abiItem.inputs.filter(input => input.indexed)
+    const indexedInputs = abiItem.inputs.filter((input) => input.indexed)
 
     for (let i = 0; i < indexedInputs.length && i < 3; i++) {
       const input = indexedInputs[i]
@@ -81,12 +73,12 @@ async function getLogsWithHypersync(
         LogField.LogIndex
       ]
     },
-    fromBlock: fromBlock ? Number.parseInt(fromBlock) : 0,
-    toBlock: toBlock ? Number.parseInt(toBlock) : undefined,
+    fromBlock: fromBlock ? Number.parseInt(fromBlock, 10) : 0,
+    toBlock: toBlock ? Number.parseInt(toBlock, 10) : undefined,
     logs: [
       {
         address: address ? [address] : undefined,
-        topics: topics.filter(t => t !== null).map(t => (Array.isArray(t) ? t : [t]))
+        topics: topics.filter((t) => t !== null).map((t) => (Array.isArray(t) ? t : [t]))
       }
     ]
   }
@@ -127,21 +119,12 @@ export default {
       chain: z.enum(SUPPORTED_CHAINS).describe('The blockchain network to use'),
       eventAbi: z
         .string()
-        .describe(
-          'Event ABI definition (e.g., "event Transfer(address indexed from, address indexed to, uint256 value)")'
-        ),
+        .describe('Event ABI definition (e.g., "event Transfer(address indexed from, address indexed to, uint256 value)")'),
       address: z.string().optional().describe('Contract address (RECOMMENDED for performance)'),
       fromBlock: z.string().optional().describe('Start block (defaults to latest-1000)'),
       toBlock: z.string().optional().describe('End block (defaults to latest)'),
       eventArgs: z
-        .record(
-          z.union([
-            z.string(),
-            z.number(),
-            z.boolean(),
-            z.array(z.union([z.string(), z.number(), z.boolean()]))
-          ])
-        )
+        .record(z.union([z.string(), z.number(), z.boolean(), z.array(z.union([z.string(), z.number(), z.boolean()]))]))
         .optional()
         .describe('Filter by indexed parameters: {"from": "0x123...", "to": "0x456..."}')
     }),
@@ -187,7 +170,7 @@ export default {
         const logs = await client.getLogs(getLogsParams)
 
         // Convert logs to serializable format
-        const serializedLogs = logs.map(log => {
+        const serializedLogs = logs.map((log) => {
           const baseLogData = {
             address: log.address,
             blockHash: log.blockHash,
@@ -223,7 +206,7 @@ export default {
         })
       } catch (viemError) {
         // If viem fails and we have hypersync support for this chain, try hypersync as fallback
-        if (HYPERSYNC_URLS[args.chain as ChainName] && args.chain !== 'localhost') {
+        if (clientManager.getHypersyncUrl(args.chain as ChainName)) {
           console.warn(`Viem getLogs failed for ${args.chain}, trying hypersync fallback:`, viemError)
 
           try {
@@ -242,7 +225,7 @@ export default {
             const toBlockNum = args.toBlock ? BigInt(args.toBlock) : undefined
 
             // Convert hypersync logs to the same format as viem logs
-            const serializedLogs = hypersyncLogs.map(log => {
+            const serializedLogs = hypersyncLogs.map((log) => {
               const baseLogData = {
                 address: log.address,
                 blockHash: log.blockHash,
@@ -277,9 +260,7 @@ export default {
               }
             })
           } catch (hypersyncError) {
-            throw new Error(
-              `Both viem and hypersync failed. Viem error: ${viemError}. Hypersync error: ${hypersyncError}`
-            )
+            throw new Error(`Both viem and hypersync failed. Viem error: ${viemError}. Hypersync error: ${hypersyncError}`)
           }
         } else {
           // No hypersync fallback available for this chain

@@ -1,13 +1,13 @@
-import { z } from 'zod'
-import { getWalletClient } from '../wallet-client.js'
-import { getClientManager, SUPPORTED_CHAINS } from '../client.js'
-import { encodeFunctionData, isAddress, parseAbiItem, parseUnits, toHex, type AbiFunction, type Address } from 'viem'
 import { randomBytes } from 'node:crypto'
-import type { ChainName } from '../types.js'
-import { buildTxPreview, type RawTx, type TxPreview } from '../preview.js'
-import { getPhoneSigner, pairingLinks } from '../walletconnect.js'
-import { createTool, formatResponse } from '../utils.js'
 import qrcode from 'qrcode-terminal'
+import { type AbiFunction, type Address, encodeFunctionData, isAddress, parseAbiItem, parseUnits, toHex } from 'viem'
+import { z } from 'zod'
+import { getClientManager, SUPPORTED_CHAINS } from '../client.js'
+import { buildTxPreview, type RawTx, type TxPreview } from '../preview.js'
+import type { ChainName } from '../types.js'
+import { createTool, formatResponse } from '../utils.js'
+import { getWalletClient } from '../wallet-client.js'
+import { getPhoneSigner, pairingLinks } from '../walletconnect.js'
 
 /** Render a pairing URI as an ASCII QR, so it can be scanned straight from the chat. */
 function qrFor(uri: string): Promise<string> {
@@ -23,8 +23,8 @@ function requireAddress(label: string, address: string): Address {
   return address
 }
 
-function explorerTxUrl(chain: ChainName, txHash: unknown): string {
-  return `https://${getClientManager().getEtherscanDomain(chain)}/tx/${txHash}`
+function explorerTxUrl(chain: ChainName, txHash: unknown): string | undefined {
+  return getClientManager().explorerUrl(chain, `/tx/${txHash}`)
 }
 
 /**
@@ -156,7 +156,11 @@ export default {
           args: [to, parseUnits(args.amount, args.decimals ?? 18)]
         })
 
-        const { txHash, preview, signedWith } = await requestSignature(args.chain as ChainName, { to: tokenAddress, data, value: '0x0' })
+        const { txHash, preview, signedWith } = await requestSignature(args.chain as ChainName, {
+          to: tokenAddress,
+          data,
+          value: '0x0'
+        })
 
         return formatResponse({
           success: true,
@@ -200,7 +204,11 @@ export default {
         })
         const value = args.value ? `0x${parseUnits(args.value, 18).toString(16)}` : '0x0'
 
-        const { txHash, preview, signedWith } = await requestSignature(args.chain as ChainName, { to: contractAddress, data, value })
+        const { txHash, preview, signedWith } = await requestSignature(args.chain as ChainName, {
+          to: contractAddress,
+          data,
+          value
+        })
 
         return formatResponse({
           success: true,
@@ -262,10 +270,7 @@ export default {
         .array(z.enum(SUPPORTED_CHAINS))
         .optional()
         .describe('Chains to request access to (defaults to every supported network)'),
-      wallet: z
-        .string()
-        .optional()
-        .describe('Name of the wallet to open, e.g. "rabby" — omit to list the common ones'),
+      wallet: z.string().optional().describe('Name of the wallet to open, e.g. "rabby" — omit to list the common ones'),
       agent: z
         .string()
         .optional()
