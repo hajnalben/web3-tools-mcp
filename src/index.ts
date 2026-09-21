@@ -40,6 +40,7 @@ ENVIRONMENT VARIABLES:
   WALLETCONNECT_PROJECT_ID      Alternative to --walletconnect-project-id
   MCP_HTTP_PORT                 Serve MCP over HTTP on this port instead of stdio
   MCP_TOKEN                     Bearer token required by the HTTP transport
+  MCP_PUBLIC_URL                Public URL of this server, advertised in OAuth metadata
   UPSTASH_REDIS_REST_URL        Keep WalletConnect sessions in Redis, not on disk
   UPSTASH_REDIS_REST_TOKEN
   WALLET_SERVER_URL             URL of a hosted wallet relay (omit to run one locally)

@@ -47,6 +47,7 @@ describe('MCP over HTTP', () => {
     })
 
     expect((await mcpCall(url, initialize)).status).toBe(401)
+    // A bad token must be 401, not 500 — 401 is what tells a client to re-authenticate.
     expect((await mcpCall(url, initialize, 'wrong-token')).status).toBe(401)
 
     const authorized = await mcpCall(url, initialize, TOKEN)

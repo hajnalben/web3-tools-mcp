@@ -1,12 +1,18 @@
-import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
-import { timingSafeEqual } from 'node:crypto'
+import express from 'express'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
+import { mcpAuthRouter, getOAuthProtectedResourceMetadataUrl } from '@modelcontextprotocol/sdk/server/auth/router.js'
+import { requireBearerAuth } from '@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import { SingleUserOAuthProvider } from './oauth.js'
 
 /**
  * Serve the MCP over HTTP instead of stdio, so the server can live somewhere other than the
  * machine running the agent. Only worth doing alongside WalletConnect: a hosted server has
  * no browser to open, so a phone wallet is the only way it can have anything signed.
+ *
+ * Two ways in, because clients differ: a static `Authorization: Bearer <MCP_TOKEN>` header
+ * (Claude Code), and the OAuth flow the MCP spec defines (claude.ai connectors, which offer
+ * no way to send a header). Both end up at the same single credential.
  *
  * Stateless — a server per request — because every tool here is a one-shot call and the
  * signing state lives in the WalletConnect session, not in the transport.
@@ -14,28 +20,18 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 
 const DEFAULT_PORT = 3457
 
-function unauthorized(res: ServerResponse) {
-  res.writeHead(401, { 'content-type': 'application/json', 'www-authenticate': 'Bearer' })
-  res.end(JSON.stringify({ jsonrpc: '2.0', error: { code: -32001, message: 'Unauthorized' } }))
-}
-
-/** Constant-time compare, so the token cannot be guessed a character at a time. */
-function tokenMatches(presented: string, expected: string): boolean {
-  const a = Buffer.from(presented)
-  const b = Buffer.from(expected)
-  return a.length === b.length && timingSafeEqual(a, b)
-}
-
 export interface HttpServerOptions {
   port?: number
   host?: string
   token?: string
+  /** Public URL clients reach this server on; OAuth metadata must advertise it. */
+  publicUrl?: string
   createMcpServer: () => McpServer
 }
 
 export async function startHttpServer(options: HttpServerOptions): Promise<{ url: string; port: number }> {
   const port = options.port ?? Number(process.env.MCP_HTTP_PORT) ?? DEFAULT_PORT
-  const host = options.host ?? process.env.HOST ?? (process.env.MCP_HTTP_HOST ? process.env.MCP_HTTP_HOST : '0.0.0.0')
+  const host = options.host ?? process.env.MCP_HTTP_HOST ?? '0.0.0.0'
   const token = options.token ?? process.env.MCP_TOKEN
 
   // A reachable MCP server with a paired phone can push signing prompts at that phone. It
@@ -44,24 +40,41 @@ export async function startHttpServer(options: HttpServerOptions): Promise<{ url
     throw new Error('MCP_TOKEN is required to serve MCP over HTTP — anyone reaching the URL could request signatures')
   }
 
-  const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
-    if (req.url === '/health') {
-      res.writeHead(200, { 'content-type': 'application/json' })
-      res.end(JSON.stringify({ status: 'ok' }))
-      return
-    }
+  const publicUrl = options.publicUrl ?? process.env.MCP_PUBLIC_URL ?? `http://localhost:${port}`
+  const issuer = new URL(publicUrl)
+  const provider = new SingleUserOAuthProvider(token)
 
-    if (!req.url?.startsWith('/mcp')) {
-      res.writeHead(404).end()
-      return
-    }
+  const app = express()
+  app.use(express.json())
+  // The login form posts a token, so the authorize route needs form bodies too.
+  app.use(express.urlencoded({ extended: false }))
 
-    const presented = req.headers.authorization?.replace(/^Bearer /i, '') ?? ''
-    if (!tokenMatches(presented, token)) {
-      unauthorized(res)
-      return
-    }
+  app.get('/health', (_req, res) => {
+    res.json({ status: 'ok' })
+  })
 
+  // /authorize, /token, /register, /revoke and the metadata documents a client discovers
+  // after a 401.
+  app.use(
+    mcpAuthRouter({
+      provider,
+      issuerUrl: issuer,
+      baseUrl: issuer,
+      resourceServerUrl: new URL('/mcp', issuer),
+      resourceName: 'web3-tools-mcp',
+      scopesSupported: []
+    })
+  )
+
+  // The metadata document is mounted under the resource path, so the 401 has to advertise
+  // that exact URL — a bare /.well-known/oauth-protected-resource 404s, and a client that
+  // follows it gives up right where discovery should have started.
+  const authenticate = requireBearerAuth({
+    verifier: provider,
+    resourceMetadataUrl: getOAuthProtectedResourceMetadataUrl(new URL('/mcp', issuer))
+  })
+
+  app.all('/mcp', authenticate, async (req, res) => {
     const mcp = options.createMcpServer()
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true })
 
@@ -72,23 +85,19 @@ export async function startHttpServer(options: HttpServerOptions): Promise<{ url
 
     try {
       await mcp.connect(transport)
-      await transport.handleRequest(req, res)
+      await transport.handleRequest(req, res, req.body)
     } catch (error) {
       console.error('[MCP] Request failed:', error)
       if (!res.headersSent) {
-        res.writeHead(500, { 'content-type': 'application/json' })
-        res.end(JSON.stringify({ jsonrpc: '2.0', error: { code: -32603, message: 'Internal error' } }))
+        res.status(500).json({ jsonrpc: '2.0', error: { code: -32603, message: 'Internal error' } })
       }
     }
   })
 
-  await new Promise<void>((resolve, reject) => {
-    server.once('error', reject)
-    server.listen(port, host, () => {
-      server.removeListener('error', reject)
-      resolve()
-    })
+  const server = await new Promise<ReturnType<typeof app.listen>>((resolve, reject) => {
+    const listening = app.listen(port, host, () => resolve(listening))
+    listening.once('error', reject)
   })
 
-  return { url: `http://${host}:${port}/mcp`, port }
+  return { url: `${publicUrl.replace(/\/$/, '')}/mcp`, port: (server.address() as { port: number }).port }
 }

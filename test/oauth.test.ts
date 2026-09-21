@@ -1,0 +1,170 @@
+import { describe, it, expect, beforeAll } from 'vitest'
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import { startHttpServer } from '../src/http-server.js'
+import { pkce } from '../src/oauth.js'
+import { registerAllTools } from '../src/tools/index.js'
+
+const TOKEN = 'oauth-test-token'
+const PORT = 4300
+const BASE = `http://127.0.0.1:${PORT}`
+
+/**
+ * Walks the flow a claude.ai connector performs: discover metadata after a 401, register
+ * itself, log in, exchange the code, then call a tool with the issued token.
+ */
+describe('OAuth for clients that cannot send a header', () => {
+  beforeAll(async () => {
+    await startHttpServer({
+      port: PORT,
+      host: '127.0.0.1',
+      token: TOKEN,
+      publicUrl: BASE,
+      createMcpServer: () => {
+        const server = new McpServer({ name: 'web3-tools-mcp', version: 'test' })
+        registerAllTools(server)
+        return server
+      }
+    })
+  })
+
+  it('points an unauthenticated client at its resource metadata', async () => {
+    const res = await fetch(`${BASE}/mcp`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' })
+    })
+
+    expect(res.status).toBe(401)
+    // Without this header a spec-following client has nowhere to go — which is exactly
+    // how the static-token-only server failed.
+    const header = res.headers.get('www-authenticate') as string
+    expect(header).toContain('resource_metadata')
+
+    // The advertised document must actually exist — pointing at a 404 strands the client.
+    const advertised = /resource_metadata="([^"]+)"/.exec(header)?.[1] as string
+    expect((await fetch(advertised)).status).toBe(200)
+  })
+
+  it('publishes discovery documents', async () => {
+    // Mounted under the resource path; the 401 above must point at this exact URL.
+    const resource = await (await fetch(`${BASE}/.well-known/oauth-protected-resource/mcp`)).json()
+    expect(resource.authorization_servers?.length).toBeGreaterThan(0)
+
+    const server = await (await fetch(`${BASE}/.well-known/oauth-authorization-server`)).json()
+    expect(server.authorization_endpoint).toBe(`${BASE}/authorize`)
+    expect(server.token_endpoint).toBe(`${BASE}/token`)
+    expect(server.code_challenge_methods_supported).toContain('S256')
+  })
+
+  it('completes registration, login, code exchange and a tool call', async () => {
+    // 1. The client registers itself, because nobody can pre-provision it.
+    const registration = await (
+      await fetch(`${BASE}/register`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        // Public client with PKCE, which is what an MCP client registers as.
+        body: JSON.stringify({
+          client_name: 'test client',
+          redirect_uris: ['http://localhost:9999/callback'],
+          token_endpoint_auth_method: 'none',
+          grant_types: ['authorization_code', 'refresh_token'],
+          response_types: ['code']
+        })
+      })
+    ).json()
+    expect(registration.client_id).toBeTruthy()
+
+    // 2. The authorize page asks for the token.
+    const { verifier, challenge } = pkce()
+    const authorizeUrl = new URL(`${BASE}/authorize`)
+    authorizeUrl.searchParams.set('client_id', registration.client_id)
+    authorizeUrl.searchParams.set('response_type', 'code')
+    authorizeUrl.searchParams.set('redirect_uri', 'http://localhost:9999/callback')
+    authorizeUrl.searchParams.set('code_challenge', challenge)
+    authorizeUrl.searchParams.set('code_challenge_method', 'S256')
+    authorizeUrl.searchParams.set('state', 'xyz')
+
+    const form = await fetch(authorizeUrl)
+    expect(form.status).toBe(200)
+    expect(await form.text()).toContain('MCP_TOKEN')
+
+    // 3. A wrong token gets no code.
+    // Post back what the form carries, the way a browser would.
+    const formFields = new URLSearchParams(authorizeUrl.search)
+    const submit = (token: string) =>
+      fetch(authorizeUrl, {
+        method: 'POST',
+        headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ ...Object.fromEntries(formFields), token }),
+        redirect: 'manual'
+      })
+
+    const refused = await submit('not-the-token')
+    expect(refused.status).toBe(401)
+
+    // 4. The right one redirects back with a code.
+    const accepted = await submit(TOKEN)
+    expect(accepted.status).toBe(302)
+    const callback = new URL(accepted.headers.get('location') as string)
+    const code = callback.searchParams.get('code') as string
+    expect(code).toBeTruthy()
+    expect(callback.searchParams.get('state')).toBe('xyz')
+
+    // 5. Exchange it, with the PKCE verifier.
+    const tokens = await (
+      await fetch(`${BASE}/token`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          grant_type: 'authorization_code',
+          code,
+          client_id: registration.client_id,
+          redirect_uri: 'http://localhost:9999/callback',
+          code_verifier: verifier
+        })
+      })
+    ).json()
+    expect(tokens.access_token).toBeTruthy()
+    expect(tokens.token_type).toBe('Bearer')
+
+    // 6. The issued token works on /mcp.
+    const call = await fetch(`${BASE}/mcp`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${tokens.access_token}`,
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream'
+      },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' })
+    })
+    expect(call.status).toBe(200)
+    expect((await call.json()).result.tools.length).toBeGreaterThan(20)
+
+    // 7. A code cannot be replayed.
+    const replay = await fetch(`${BASE}/token`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        grant_type: 'authorization_code',
+        code,
+        client_id: registration.client_id,
+        redirect_uri: 'http://localhost:9999/callback',
+        code_verifier: verifier
+      })
+    })
+    expect(replay.status).toBeGreaterThanOrEqual(400)
+  })
+
+  it('still accepts the static token, so header-capable clients keep working', async () => {
+    const res = await fetch(`${BASE}/mcp`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${TOKEN}`,
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream'
+      },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' })
+    })
+    expect(res.status).toBe(200)
+  })
+})

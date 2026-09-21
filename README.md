@@ -190,6 +190,12 @@ claude mcp add --transport http web3-tools https://your-host/mcp \
   --header "Authorization: Bearer <MCP_TOKEN>"
 ```
 
+Clients that cannot send a header — claude.ai connectors, and so the browser and phone apps
+— use OAuth instead, which the server implements against the same credential: it sends them
+to a page that asks for `MCP_TOKEN` and issues a token once you paste it. Nothing to
+configure, no identity provider, no accounts. Set `MCP_PUBLIC_URL` to the address clients
+reach you on, since OAuth metadata has to advertise it.
+
 `MCP_TOKEN` is mandatory and the server refuses to start without it: anyone who can reach
 `/mcp` while your phone is paired can push signing prompts at it. You would still approve
 each one, but that is a phishing surface, not a feature.
