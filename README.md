@@ -88,11 +88,58 @@ The server includes a built-in wallet interface for secure transaction signing w
 ### How It Works
 
 1. When you use a transaction tool (e.g., `send_native_token`), the server automatically:
-   - Starts a local web server on `http://localhost:3456`
+   - Starts a local wallet relay on `http://localhost:3456`
    - Opens your browser to connect your wallet (MetaMask, Rabby, Coinbase Wallet, etc.)
 2. You connect your wallet once in the browser
-3. Transaction requests appear in the browser for approval
+3. The transaction is decoded and simulated, then the request appears in the browser for approval
 4. Sign or reject transactions directly in your wallet
+
+The browser page and the MCP server are both clients of the relay, authenticated with a
+pairing token that travels in the URL fragment (`#t=…`) of the link the server prints.
+
+**One relay per machine.** Every local MCP process looks for an existing relay on ports
+3456-3460 before starting one, so all your editor sessions share a single wallet page —
+connect once, and a transaction from any session lands in that tab. They authenticate with
+a token kept in `~/.config/web3-tools-mcp/relay-token` (mode 0600); delete it to rotate.
+
+### Before You Sign
+
+Each request shows what the transaction actually does, not just calldata:
+
+- **Decoded call** — function name and named arguments, from the verified ABI (Sourcify /
+  Etherscan) or, for unverified contracts, from selectors recovered from bytecode via
+  [WhatsABI](https://github.com/shazow/whatsabi). Proxies are resolved to their implementation.
+- **Token amounts** — formatted with on-chain decimals and symbol; unlimited approvals are
+  flagged explicitly.
+- **Simulation** — `eth_simulateV1` (falling back to `eth_call` + `estimateGas`) reports the
+  gas estimate and every ERC20 transfer the transaction would cause, marked in/out for your
+  account. A reverting transaction is shown as such before you can approve it.
+
+### Hosting the Wallet Page
+
+The relay lives in its own workspace, [`wallet/`](wallet), and depends only on express, cors
+and ws (~4MB installed, against ~180MB for the MCP server). It deploys on its own to any host
+that keeps a Node process alive and supports WebSockets — Render, Railway, Fly:
+
+```bash
+# On the host, from wallet/ — PORT is provided by the platform
+WALLET_TOKEN=<long random string> WALLET_PUBLIC_URL=https://wallet.example.com npm start
+```
+
+Then point the MCP server at it:
+
+```bash
+export WALLET_SERVER_URL=https://wallet.example.com
+export WALLET_TOKEN=<the same token>
+npx web3-tools-mcp
+```
+
+`render.yaml` deploys the relay as-is (`rootDir: wallet`, so only its dependencies are
+installed). Anyone holding `WALLET_TOKEN` can send your browser transactions to sign, so
+treat it like a password and always serve the page over HTTPS.
+
+Locally nothing changes: the MCP server embeds the same relay and `npm run start:wallet`
+runs it from the workspace.
 
 ### Supported Wallets
 
@@ -103,12 +150,12 @@ The server includes a built-in wallet interface for secure transaction signing w
 
 ### Manual Access
 
-Visit `http://localhost:3456` anytime to:
+Visit the wallet URL printed by the server (`wallet_status` also returns it) anytime to:
 - Check wallet connection status
 - See pending transactions
 - View transaction history
 
-**Note:** The wallet server runs automatically when the MCP server starts. No additional setup required!
+**Note:** The relay starts automatically with the MCP server. No additional setup required.
 
 ## Available Tools
 
