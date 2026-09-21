@@ -4,8 +4,15 @@ import { getClientManager, SUPPORTED_CHAINS } from '../client.js'
 import { encodeFunctionData, isAddress, parseAbiItem, parseUnits, type AbiFunction, type Address } from 'viem'
 import { randomBytes } from 'node:crypto'
 import type { ChainName } from '../types.js'
-import { buildTxPreview, type RawTx } from '../preview.js'
+import { buildTxPreview, type RawTx, type TxPreview } from '../preview.js'
+import { getPhoneSigner } from '../walletconnect.js'
 import { createTool, formatResponse } from '../utils.js'
+import qrcode from 'qrcode-terminal'
+
+/** Render a pairing URI as an ASCII QR, so it can be scanned straight from the chat. */
+function qrFor(uri: string): Promise<string> {
+  return new Promise((resolve) => qrcode.generate(uri, { small: true }, resolve))
+}
 
 function generateRequestId(): string {
   return randomBytes(16).toString('hex')
@@ -21,10 +28,28 @@ function explorerTxUrl(chain: ChainName, txHash: unknown): string {
 }
 
 /**
- * Send a transaction for signing, with a decoded + simulated preview attached so the
- * wallet page can show what it actually does instead of raw calldata.
+ * Send a transaction for signing.
+ *
+ * A paired phone wins over the browser page: it was set up deliberately and is the only
+ * option when there is no browser to open. Either way the transaction is decoded and
+ * simulated first — the phone wallet shows its own summary, so the preview is returned to
+ * the caller as well, where it can be read before the prompt is approved.
  */
 async function requestSignature(chain: ChainName, tx: RawTx & { data?: string }) {
+  const phone = getPhoneSigner()
+
+  if (await phone?.isPaired()) {
+    const session = await phone!.session()
+    const from = session?.accounts[0]
+    const preview = await buildTxPreview(chain, tx, from)
+
+    const txHash = await phone!.request(chain, 'eth_sendTransaction', [
+      { from, to: tx.to, value: tx.value ?? '0x0', ...(tx.data && { data: tx.data }) }
+    ])
+
+    return { txHash, preview, signedWith: 'phone' as const }
+  }
+
   const wallet = getWalletClient()
   await wallet.waitForSigner()
 
@@ -38,7 +63,18 @@ async function requestSignature(chain: ChainName, tx: RawTx & { data?: string })
       data: { to: tx.to, value: tx.value ?? '0x0', ...(tx.data && { data: tx.data }) },
       preview
     }),
-    preview
+    preview,
+    signedWith: 'browser' as const
+  }
+}
+
+/** What the caller should see about a transaction before it is approved. */
+function previewSummary(preview: TxPreview) {
+  return {
+    action: preview.decoded?.intent ?? preview.decoded?.functionName,
+    protocol: preview.decoded?.protocol ?? preview.toLabel,
+    details: preview.decoded?.fields.map((f) => `${f.name}: ${f.value}${f.warning ? ` (${f.warning})` : ''}`),
+    simulation: preview.simulation
   }
 }
 
@@ -65,7 +101,7 @@ export default {
         const to = requireAddress('recipient address', args.to)
         const value = `0x${parseUnits(args.amount, 18).toString(16)}`
 
-        const { txHash, preview } = await requestSignature(args.chain as ChainName, { to, value, data: args.data })
+        const { txHash, preview, signedWith } = await requestSignature(args.chain as ChainName, { to, value, data: args.data })
 
         return formatResponse({
           success: true,
@@ -73,7 +109,8 @@ export default {
           transactionHash: txHash,
           to,
           amount: args.amount,
-          simulation: preview.simulation,
+          signedWith,
+          preview: previewSummary(preview),
           explorerUrl: explorerTxUrl(args.chain as ChainName, txHash)
         })
       } catch (error) {
@@ -102,7 +139,7 @@ export default {
           args: [to, parseUnits(args.amount, args.decimals ?? 18)]
         })
 
-        const { txHash, preview } = await requestSignature(args.chain as ChainName, { to: tokenAddress, data, value: '0x0' })
+        const { txHash, preview, signedWith } = await requestSignature(args.chain as ChainName, { to: tokenAddress, data, value: '0x0' })
 
         return formatResponse({
           success: true,
@@ -111,7 +148,8 @@ export default {
           tokenAddress,
           to,
           amount: args.amount,
-          simulation: preview.simulation,
+          signedWith,
+          preview: previewSummary(preview),
           explorerUrl: explorerTxUrl(args.chain as ChainName, txHash)
         })
       } catch (error) {
@@ -145,7 +183,7 @@ export default {
         })
         const value = args.value ? `0x${parseUnits(args.value, 18).toString(16)}` : '0x0'
 
-        const { txHash, preview } = await requestSignature(args.chain as ChainName, { to: contractAddress, data, value })
+        const { txHash, preview, signedWith } = await requestSignature(args.chain as ChainName, { to: contractAddress, data, value })
 
         return formatResponse({
           success: true,
@@ -153,7 +191,8 @@ export default {
           transactionHash: txHash,
           contractAddress,
           functionName: abiItem.name,
-          simulation: preview.simulation,
+          signedWith,
+          preview: previewSummary(preview),
           explorerUrl: explorerTxUrl(args.chain as ChainName, txHash)
         })
       } catch (error) {
@@ -189,6 +228,52 @@ export default {
     }
   ),
 
+  pair_phone_wallet: createTool(
+    'Pair Phone Wallet',
+    'Pair a phone wallet over WalletConnect, so transactions are signed on the phone instead of in a browser. Returns a QR code to scan. Requires a WalletConnect project id.',
+    z.object({
+      chains: z
+        .array(z.enum(SUPPORTED_CHAINS))
+        .optional()
+        .describe('Chains to request access to (defaults to every supported network)')
+    }),
+    async (args) => {
+      const phone = getPhoneSigner()
+      if (!phone) {
+        return formatResponse({
+          success: false,
+          message:
+            'No WalletConnect project id configured. Get a free one at https://dashboard.reown.com and pass --walletconnect-project-id or set WALLETCONNECT_PROJECT_ID.'
+        })
+      }
+
+      try {
+        const existing = await phone.session()
+        if (existing) {
+          return formatResponse({
+            alreadyPaired: true,
+            address: existing.accounts[0],
+            wallet: existing.peer,
+            message: 'A phone wallet is already paired. Transactions will be sent to it.'
+          })
+        }
+
+        const chains = (args.chains ?? SUPPORTED_CHAINS.filter((c) => c !== 'localhost')) as ChainName[]
+        const uri = await phone.pair(chains)
+
+        return formatResponse({
+          qr: await qrFor(uri),
+          uri,
+          message:
+            'Scan this QR with your phone wallet (MetaMask, Rabby, Trust…), or open the uri on the phone. ' +
+            'Approve the session, then run wallet_status to confirm.'
+        })
+      } catch (error) {
+        return failure(error, 'Could not start WalletConnect pairing')
+      }
+    }
+  ),
+
   wallet_status: createTool(
     'Wallet Status',
     'Check if a wallet is connected to the browser interface',
@@ -202,10 +287,26 @@ export default {
         return failure(error, 'Wallet relay unavailable')
       }
 
+      // A paired phone is the signer of record, so report it before the browser page.
+      const phone = getPhoneSigner()
+      const phoneSession = await phone?.session().catch(() => undefined)
+      if (phoneSession) {
+        return formatResponse({
+          connected: true,
+          signer: 'phone',
+          address: phoneSession.accounts[0],
+          wallet: phoneSession.peer,
+          chains: phoneSession.chains,
+          message: 'A phone wallet is paired over WalletConnect. Transactions are sent there for signing.'
+        })
+      }
+
       if (!wallet.isConnected()) wallet.openBrowser()
 
       return formatResponse({
         connected: wallet.isConnected(),
+        signer: 'browser',
+        phonePairing: phone ? 'Not paired — run pair_phone_wallet to sign from a phone.' : undefined,
         address: wallet.getAddress(),
         walletUrl: wallet.getUrl(),
         openTab: wallet.getPageUrl(),

@@ -1,5 +1,5 @@
 import type { AbiParameter } from 'viem'
-import type { ToolResult } from './types.js'
+import type { Config, ToolResult } from './types.js'
 import { z } from 'zod'
 
 // Create tool helper
@@ -264,22 +264,8 @@ export function formatResponse(data: unknown): ToolResult {
 }
 
 // Parse command line arguments
-export function parseCommandLineArgs(): {
-  etherscanApiKey?: string
-  alchemyApiKey?: string
-  infuraApiKey?: string
-  customRpcUrls?: Record<string, string>
-  hypersyncApiKey?: string
-  showHelp?: boolean
-} {
-  const config: {
-    etherscanApiKey?: string
-    alchemyApiKey?: string
-    infuraApiKey?: string
-    customRpcUrls?: Record<string, string>
-    hypersyncApiKey?: string
-    showHelp?: boolean
-  } = {}
+export function parseCommandLineArgs(): Config & { showHelp?: boolean } {
+  const config: Config & { showHelp?: boolean } = {}
 
   function getArgValue(argName: string): string | undefined {
     const args = process.argv
@@ -302,6 +288,7 @@ export function parseCommandLineArgs(): {
   config.alchemyApiKey = process.env.ALCHEMY_API_KEY || getArgValue('--alchemy-api-key')
   config.infuraApiKey = process.env.INFURA_API_KEY || getArgValue('--infura-api-key')
   config.hypersyncApiKey = process.env.HYPERSYNC_API_KEY || getArgValue('--hypersync-api-key')
+  config.walletConnectProjectId = process.env.WALLETCONNECT_PROJECT_ID || getArgValue('--walletconnect-project-id')
 
   // Parse custom RPC URLs
   const customRpcs = getArgValue('--custom-rpc')

@@ -14,6 +14,7 @@ export interface Config {
   infuraApiKey?: string
   customRpcUrls?: Record<string, string>
   hypersyncApiKey?: string
+  walletConnectProjectId?: string
 }
 
 // Chain names

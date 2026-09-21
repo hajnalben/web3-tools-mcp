@@ -26,6 +26,8 @@ OPTIONS:
   --alchemy-api-key <key>       Alchemy API key (for enhanced RPC)
   --infura-api-key <key>        Infura API key (for alternative RPC)
   --hypersync-api-key <key>     Hypersync API key (for fast event queries)
+  --walletconnect-project-id <id>
+                                WalletConnect project id, to sign from a phone
   --custom-rpc <json>           Custom RPC URLs as JSON object
                                 Example: '{"mainnet":"https://...", "base":"https://..."}'
 
@@ -34,6 +36,7 @@ ENVIRONMENT VARIABLES:
   ALCHEMY_API_KEY               Alternative to --alchemy-api-key
   INFURA_API_KEY                Alternative to --infura-api-key
   HYPERSYNC_API_KEY             Alternative to --hypersync-api-key
+  WALLETCONNECT_PROJECT_ID      Alternative to --walletconnect-project-id
   WALLET_SERVER_URL             URL of a hosted wallet relay (omit to run one locally)
   WALLET_TOKEN                  Shared pairing token for the wallet relay
 
@@ -69,6 +72,9 @@ if (config.alchemyApiKey) {
 }
 if (config.infuraApiKey) {
   console.error("[MCP] Infura API key configured");
+}
+if (config.walletConnectProjectId) {
+  console.error("[MCP] WalletConnect project id configured — phone signing available");
 }
 if (config.customRpcUrls) {
   console.error("[MCP] Custom RPC URLs:", Object.keys(config.customRpcUrls));

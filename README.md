@@ -5,7 +5,7 @@ A Model Context Protocol (MCP) server for blockchain interactions using [viem](h
 ## Features
 
 - Multi-chain support (Ethereum, Arbitrum, Avalanche, Base, BNB Chain, Gnosis, Sonic, Optimism, Polygon, zkSync Era, Linea, Unichain)
-- **🔐 Transaction Signing via Browser Wallet** (MetaMask, Rabby, Coinbase Wallet)
+- **🔐 Transaction signing** in a browser wallet (MetaMask, Rabby, Coinbase) or on your phone over WalletConnect
 - Clear signing: transactions are decoded, named and simulated before you approve them
 - Smart contract interactions (read & write functions, ABI retrieval, source code)
 - Contract simulation & gas estimation (simulate transactions, estimate costs)
@@ -46,6 +46,7 @@ All API keys are optional. The server uses public RPCs by default. Add keys to u
 - `--alchemy-api-key` or `ALCHEMY_API_KEY` - Enhanced RPC reliability
 - `--infura-api-key` or `INFURA_API_KEY` - Additional RPC provider
 - `--custom-rpc` - Custom RPC URLs as JSON
+- `--walletconnect-project-id` or `WALLETCONNECT_PROJECT_ID` - Sign from a phone
 
 **Wallet relay (all optional):**
 - `WALLET_SERVER_URL` + `WALLET_TOKEN` - Use a hosted relay instead of a local one
@@ -124,6 +125,26 @@ Each request shows what the transaction actually does, not just calldata:
   gas estimate and every ERC20 transfer the transaction would cause, marked in/out for your
   account. A reverting transaction is shown as such before you can approve it.
 
+### Signing From a Phone
+
+A phone cannot run the relay, so it does not have to: with a
+[WalletConnect](https://dashboard.reown.com) project id the MCP server talks to your phone
+wallet directly, over WalletConnect's own (end-to-end encrypted) relay. No page to load,
+nothing to host.
+
+```bash
+npx web3-tools-mcp --walletconnect-project-id YOUR_PROJECT_ID
+```
+
+Then ask the agent to pair — `pair_phone_wallet` returns a QR code to scan with MetaMask,
+Rabby, Trust or any WalletConnect wallet. The session is stored in
+`~/.config/web3-tools-mcp/walletconnect.db`, so you pair once and it survives restarts.
+
+While a phone is paired it signs everything; the browser page takes over again when it is
+not. Either way the transaction is decoded and simulated first, and that summary comes back
+in the tool response — your phone wallet shows its own preview, so read ours before you
+approve theirs.
+
 ### Hosting the Wallet Page
 
 The relay lives in its own workspace, [`wallet/`](wallet), and depends only on express, cors
@@ -189,7 +210,8 @@ Visit the wallet URL printed by the server (`wallet_status` also returns it) any
 - `send_native_token` - Send ETH/native tokens to an address
 - `send_erc20_token` - Send ERC20 tokens to an address
 - `sign_message` - Sign messages with your wallet
-- `wallet_status` - Check wallet connection status
+- `wallet_status` - Check which signer is connected (phone or browser)
+- `pair_phone_wallet` - Pair a phone wallet over WalletConnect, returning a QR to scan
 
 ### Gas & Simulation
 - `estimate_gas` - Estimate gas cost for any transaction
