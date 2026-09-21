@@ -164,13 +164,63 @@ function parseError(error) {
 // UI Functions
 const PAGE_TITLE = document.title
 
+const ALERT_TITLE = '\u26a0 Transaction request'
+const ALERT_FAVICON =
+  'data:image/svg+xml,' +
+  encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7" fill="#e8a33d"/></svg>'
+  )
+
+let flashTimer = null
+
+function setFavicon(href) {
+  let link = document.querySelector('link[rel="icon"]')
+  if (!link) {
+    link = document.createElement('link')
+    link.rel = 'icon'
+    document.head.appendChild(link)
+  }
+  if (href) link.href = href
+  else link.remove()
+}
+
 /**
- * Pull attention to a pending request. The tab title always works; the desktop
- * notification only if the user granted permission, and clicking it focuses this tab.
- * The MCP server also raises the browser window, which covers the case where neither helps.
+ * A title that merely changes is easy to miss in a strip of tabs, so it alternates until
+ * the request is dealt with. Flashing stops once the tab is actually looked at — the badge
+ * stays, since the request is still pending.
+ */
+function startFlashing() {
+  stopFlashing()
+  let showing = false
+  flashTimer = setInterval(() => {
+    showing = !showing
+    document.title = showing ? ALERT_TITLE : PAGE_TITLE
+  }, 900)
+}
+
+function stopFlashing() {
+  if (flashTimer) clearInterval(flashTimer)
+  flashTimer = null
+}
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible' || !flashTimer) return
+  stopFlashing()
+  document.title = ALERT_TITLE
+})
+
+/**
+ * Pull attention to a pending request.
+ *
+ * Nothing here can rely on the server: hosted, it is on another machine and cannot raise
+ * your window. So the page does what it can by itself — a flashing title and a badged
+ * favicon, which need no permission — and a desktop notification when one was granted.
  */
 function announceRequest(request) {
-  document.title = '\u26a0 Transaction request'
+  document.title = ALERT_TITLE
+  startFlashing()
+  setFavicon(ALERT_FAVICON)
+  navigator.vibrate?.([200, 100, 200])
 
   if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return
 
@@ -189,9 +239,9 @@ function announceRequest(request) {
 }
 
 /**
- * The MCP server no longer raises the browser window (that could only be done by opening a
- * URL, which spawns a stray tab), so a desktop notification is how a backgrounded tab gets
- * noticed. Offered as a button because browsers only grant permission on a real click.
+ * The only cue that survives a minimised window. Offered as a button because browsers grant
+ * the permission on a real click, and it matters most against a hosted server, which has no
+ * way to reach your desktop at all.
  */
 function enableNotifications() {
   if (typeof Notification === 'undefined') return
@@ -213,6 +263,8 @@ function updateNotifyButton() {
 }
 
 function clearRequestNotice() {
+  stopFlashing()
+  setFavicon(null)
   document.title = PAGE_TITLE
 }
 
