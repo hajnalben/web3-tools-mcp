@@ -1,0 +1,56 @@
+{
+  "name": "web3-wallet-relay",
+  "version": "1.0.0",
+  "description": "Browser wallet signing relay for web3-tools-mcp \u2014 runs embedded or on a host",
+  "type": "module",
+  "main": "dist/relay.js",
+  "types": "dist/relay.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/relay.d.ts",
+      "import": "./dist/relay.js"
+    }
+  },
+  "bin": {
+    "web3-wallet-relay": "dist/relay.js"
+  },
+  "files": [
+    "dist",
+    "public",
+    "src"
+  ],
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "clean": "rm -rf dist",
+    "build": "npm run clean && tsc",
+    "prepare": "npm run build",
+    "start": "node dist/relay.js"
+  },
+  "keywords": [
+    "ethereum",
+    "wallet",
+    "websocket",
+    "eip-1193"
+  ],
+  "author": "Benjamin Hajnal <hajnalbenjamin@gmail.com>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hajnalben/web3-tools-mcp.git",
+    "directory": "wallet"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.21.2",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.0",
+    "@types/node": "^20.19.23",
+    "@types/ws": "^8.5.13",
+    "typescript": "^5.0.0"
+  }
+}
