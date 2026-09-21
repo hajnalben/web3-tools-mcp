@@ -1,16 +1,18 @@
 # Runs the MCP server over HTTP, for hosting it somewhere other than the machine running
-# the agent. Signing then happens on a phone over WalletConnect — a hosted server has no
-# browser to open.
+# the agent. Signing reaches you on a paired phone over WalletConnect, or in the browser via
+# the signing page this same server hosts.
 FROM node:22-slim AS build
 
 WORKDIR /app
 COPY package*.json ./
 COPY mcp/package.json ./mcp/
 COPY wallet-relay/package.json ./wallet-relay/
-# `npm ci` runs prepare, which builds both workspaces, so the sources must be in place.
 COPY mcp ./mcp
 COPY wallet-relay ./wallet-relay
-RUN npm ci
+# Install without scripts, then build in dependency order. Letting `npm ci` run the
+# workspace prepare scripts raced its own linking: mcp would compile before
+# node_modules/web3-wallet-relay existed and fail to resolve the relay's types.
+RUN npm ci --ignore-scripts && npm run build
 
 FROM node:22-slim AS runtime
 
