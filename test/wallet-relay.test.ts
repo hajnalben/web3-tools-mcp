@@ -1,7 +1,7 @@
-import { describe, it, expect, afterEach } from 'vitest'
-import { WebSocket, WebSocketServer } from 'ws'
 import { createServer, type Server } from 'node:http'
+import { afterEach, describe, expect, it } from 'vitest'
 import { WalletRelay } from 'web3-wallet-relay'
+import { WebSocket, WebSocketServer } from 'ws'
 import { WalletClient } from '../src/wallet-client.js'
 
 const TOKEN = 'test-token'
@@ -113,9 +113,9 @@ describe('WalletRelay', () => {
   it('opens a tab only when no wallet page is connected', async () => {
     const relay = await startRelay(4112)
     const client = new WalletClient({ port: 4112, token: TOKEN })
-    client['signerWaitTimeout'] = 200
+    client.signerWaitTimeout = 200
     const opened: string[] = []
-    client['open'] = (url: string) => {
+    client.open = (url: string) => {
       opened.push(url)
     }
     await client.connect()
@@ -123,30 +123,30 @@ describe('WalletRelay', () => {
     // A page is open but has no wallet yet: it gets told over its socket, not by the OS.
     const page = await connect(relay.getPort(), { token: TOKEN, role: 'signer', url: 'http://127.0.0.1:4112/#t=x' })
     sockets.push(page)
-    while (client['pages'] === 0) await new Promise((resolve) => setTimeout(resolve, 10))
+    while (client.pages === 0) await new Promise((resolve) => setTimeout(resolve, 10))
 
     await expect(client.waitForSigner()).rejects.toThrow(/No wallet connected/)
     expect(opened).toEqual([])
 
     // Raising the browser must never go through a URL — that is what spawned stray tabs.
     const activated: string[] = []
-    client['activateApp'] = (app: string) => {
+    client.activateApp = (app: string) => {
       activated.push(app)
     }
-    client['pageAgent'] = 'Mozilla/5.0 (Macintosh) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Safari/537.36'
+    client.pageAgent = 'Mozilla/5.0 (Macintosh) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Safari/537.36'
     client.focusBrowser()
     expect(opened).toEqual([])
     expect(activated).toEqual(process.platform === 'darwin' ? ['Google Chrome'] : [])
 
     // An unrecognised browser is left alone rather than guessed at.
     activated.length = 0
-    client['pageAgent'] = 'some-unknown-client/1.0'
+    client.pageAgent = 'some-unknown-client/1.0'
     client.focusBrowser()
     expect(activated).toEqual([])
 
     // With nothing connected at all, open the pairing URL — token included.
     page.close()
-    while (client['pages'] > 0) await new Promise((resolve) => setTimeout(resolve, 10))
+    while (client.pages > 0) await new Promise((resolve) => setTimeout(resolve, 10))
     await expect(client.waitForSigner()).rejects.toThrow(/No wallet connected/)
     expect(opened).toHaveLength(1)
     expect(opened[0]).toContain('#t=')
@@ -158,8 +158,8 @@ describe('WalletRelay', () => {
     const client = new WalletClient({ port: 4113, token: TOKEN })
 
     // Nothing but http(s) should ever reach the shell-free opener.
-    expect(() => client['open']('file:///etc/passwd')).not.toThrow()
-    expect(() => client['open']('not a url')).not.toThrow()
+    expect(() => client.open('file:///etc/passwd')).not.toThrow()
+    expect(() => client.open('not a url')).not.toThrow()
   })
 
   it('counts a page with no wallet connected as a page, not a signer', async () => {
@@ -210,7 +210,7 @@ describe('WalletRelay', () => {
     const client = new WalletClient({ port: 4108, token: TOKEN })
     await client.connect()
 
-    expect(client['relay']).toBeNull()
+    expect(client.relay).toBeNull()
     expect(client.getUrl()).toBe(`http://127.0.0.1:4108/#t=${TOKEN}`)
 
     // Prove it is really attached to that relay: its signer count reaches the client.
@@ -231,10 +231,10 @@ describe('WalletRelay', () => {
       await client.connect()
 
       // It refused to attach to the silent server and owns a relay of its own instead.
-      expect(client['relay']).not.toBeNull()
+      expect(client.relay).not.toBeNull()
 
       // And that relay works: a signer on it reaches the client.
-      const signer = await connect(client['relay']!.getPort(), { token: TOKEN, role: 'signer', address: '0xdef' })
+      const signer = await connect(client.relay!.getPort(), { token: TOKEN, role: 'signer', address: '0xdef' })
       sockets.push(signer)
       while (!client.isConnected()) await new Promise((resolve) => setTimeout(resolve, 10))
       expect(client.getAddress()).toBe('0xdef')

@@ -222,7 +222,8 @@ async function walletRegistry(projectId: string): Promise<WalletEntry[]> {
 
   try {
     const response = await fetch(`https://explorer-api.walletconnect.com/v3/wallets?projectId=${projectId}&entries=100&page=1`)
-    const listings = ((await response.json()) as { listings?: Record<string, { name: string; mobile?: WalletEntry }> }).listings ?? {}
+    const listings =
+      ((await response.json()) as { listings?: Record<string, { name: string; mobile?: WalletEntry }> }).listings ?? {}
 
     wallets = Object.values(listings)
       .map(({ name, mobile }) => ({ name, native: mobile?.native || undefined, universal: mobile?.universal || undefined }))

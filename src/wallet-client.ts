@@ -1,10 +1,10 @@
-import { WebSocket } from 'ws'
 import { execFile } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { WalletRelay, type TransactionRequest, type TransactionResponse } from 'web3-wallet-relay'
+import { type TransactionRequest, type TransactionResponse, WalletRelay } from 'web3-wallet-relay'
+import { WebSocket } from 'ws'
 
 const REQUEST_TIMEOUT = 300_000
 const SIGNER_WAIT_TIMEOUT = 30_000

@@ -3,8 +3,9 @@
  * human labels for addresses. Kept apart from the preview and the clear-signing registry
  * so both can use it without importing each other.
  */
-import { type Abi, type Address, parseAbiItem } from 'viem'
+
 import { whatsabi } from '@shazow/whatsabi'
+import { type Abi, type Address, parseAbiItem } from 'viem'
 import { getClientManager } from './client.js'
 import type { ChainName } from './types.js'
 
@@ -26,7 +27,9 @@ export async function loadAbi(chain: ChainName, address: string) {
   const client = clientManager.getClient(chain)
   const etherscanApiKey = clientManager.getConfig().etherscanApiKey
 
-  const loaders: whatsabi.loaders.ABILoader[] = [new whatsabi.loaders.SourcifyABILoader({ chainId: clientManager.getChainId(chain) })]
+  const loaders: whatsabi.loaders.ABILoader[] = [
+    new whatsabi.loaders.SourcifyABILoader({ chainId: clientManager.getChainId(chain) })
+  ]
   if (etherscanApiKey) {
     loaders.push(new whatsabi.loaders.EtherscanV2ABILoader({ apiKey: etherscanApiKey, chainId: clientManager.getChainId(chain) }))
   }
@@ -83,7 +86,9 @@ export async function addressLabel(chain: ChainName, address: string): Promise<s
 
   let label: string | undefined
   try {
-    const code = await getClientManager().getClient(chain).getBytecode({ address: address as Address })
+    const code = await getClientManager()
+      .getClient(chain)
+      .getBytecode({ address: address as Address })
     if (code && code !== '0x') {
       label = (await tokenMeta(chain, address).catch(() => ({ symbol: undefined }))).symbol
       if (!label) label = (await loadAbi(chain, address)).name
@@ -95,7 +100,6 @@ export async function addressLabel(chain: ChainName, address: string): Promise<s
   labelCache.set(key, label)
   return label
 }
-
 
 /** uint256 max and anything near it means "infinite" in an approval. */
 export const MAX_UINT256 = (1n << 256n) - 1n

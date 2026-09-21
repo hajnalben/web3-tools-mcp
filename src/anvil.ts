@@ -1,4 +1,4 @@
-import { spawn, ChildProcess } from 'child_process'
+import { type ChildProcess, spawn } from 'node:child_process'
 import { createPublicClient, http } from 'viem'
 import { mainnet } from 'viem/chains'
 
@@ -18,16 +18,16 @@ export interface AnvilConfig {
 
 // Check if anvil is installed
 export async function isAnvilInstalled(): Promise<boolean> {
-  return new Promise(resolve => {
+  return new Promise((resolve) => {
     const proc = spawn('anvil', ['--version'], { shell: true })
-    proc.on('close', code => resolve(code === 0))
+    proc.on('close', (code) => resolve(code === 0))
     proc.on('error', () => resolve(false))
   })
 }
 
 // Find an available port
 async function findAvailablePort(startPort: number = 8545): Promise<number> {
-  const net = await import('net')
+  const net = await import('node:net')
   return new Promise((resolve, reject) => {
     const server = net.createServer()
     server.listen(startPort, () => {
@@ -40,7 +40,9 @@ async function findAvailablePort(startPort: number = 8545): Promise<number> {
     })
     server.on('error', () => {
       // Port in use, try next one
-      findAvailablePort(startPort + 1).then(resolve).catch(reject)
+      findAvailablePort(startPort + 1)
+        .then(resolve)
+        .catch(reject)
     })
   })
 }
@@ -49,9 +51,7 @@ async function findAvailablePort(startPort: number = 8545): Promise<number> {
 export async function startAnvil(config: AnvilConfig): Promise<AnvilInstance> {
   const installed = await isAnvilInstalled()
   if (!installed) {
-    throw new Error(
-      'Anvil is not installed. Please install Foundry: https://book.getfoundry.sh/getting-started/installation'
-    )
+    throw new Error('Anvil is not installed. Please install Foundry: https://book.getfoundry.sh/getting-started/installation')
   }
 
   const port = config.port ?? (await findAvailablePort())
@@ -74,15 +74,15 @@ export async function startAnvil(config: AnvilConfig): Promise<AnvilInstance> {
     })
 
     let stderr = ''
-    proc.stderr?.on('data', data => {
+    proc.stderr?.on('data', (data) => {
       stderr += data.toString()
     })
 
-    proc.on('error', err => {
+    proc.on('error', (err) => {
       reject(new Error(`Failed to start Anvil: ${err.message}`))
     })
 
-    proc.on('close', code => {
+    proc.on('close', (code) => {
       if (code !== 0 && code !== null) {
         reject(new Error(`Anvil exited with code ${code}: ${stderr}`))
       }
@@ -107,7 +107,7 @@ export async function startAnvil(config: AnvilConfig): Promise<AnvilInstance> {
         })
         if (response.ok) {
           // Add small delay to ensure all RPC methods are ready (including debug_*)
-          await new Promise(r => setTimeout(r, 100))
+          await new Promise((r) => setTimeout(r, 100))
           const client = createPublicClient({
             chain: mainnet, // Chain is overridden by fork anyway
             transport: http(rpcUrl)
@@ -142,10 +142,7 @@ export function stopAnvil(instance: AnvilInstance): void {
 }
 
 // Helper to run a function with a temporary Anvil instance
-export async function withAnvil<T>(
-  config: AnvilConfig,
-  fn: (instance: AnvilInstance) => Promise<T>
-): Promise<T> {
+export async function withAnvil<T>(config: AnvilConfig, fn: (instance: AnvilInstance) => Promise<T>): Promise<T> {
   const instance = await startAnvil(config)
   try {
     return await fn(instance)
@@ -193,7 +190,7 @@ export async function traceTransactionWithAnvil(
       forkUrl: archiveUrl,
       forkBlockNumber: forkBlock
     },
-    async instance => {
+    async (instance) => {
       // Use debug_traceCall to simulate and trace the transaction
       // Note: This replays the tx against the post-block state, which may differ slightly
       // from the original execution if state changed within the block
@@ -243,7 +240,7 @@ export async function simulateCallWithTrace(
       forkUrl,
       forkBlockNumber: blockNumber
     },
-    async instance => {
+    async (instance) => {
       // First, try a regular call to get the result
       let result = '0x'
       let success = true

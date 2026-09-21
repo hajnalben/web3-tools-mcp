@@ -27,9 +27,9 @@
  *   }
  * }
  */
-import { readFileSync, writeFileSync, readdirSync, statSync } from 'node:fs'
-import { gzipSync } from 'node:zlib'
+import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { gzipSync } from 'node:zlib'
 import { toFunctionSelector } from 'viem'
 
 const [registryDir, outputFile] = process.argv.slice(2)
@@ -112,15 +112,13 @@ for (const dir of readdirSync(registryDir)) {
 
           if (index[address].selectors[selector]) continue // don't overwrite
 
-          const fields = (format.fields || [])
-            .filter((f) => f.visible !== 'never')
-            .map((f) => resolveField(f, descriptor))
+          const fields = (format.fields || []).filter((f) => f.visible !== 'never').map((f) => resolveField(f, descriptor))
 
           index[address].selectors[selector] = {
             name: format.$id || selector,
             intent: format.intent || format.$id || 'Unknown',
             ...(signature && { signature }),
-            fields,
+            fields
           }
         }
       }

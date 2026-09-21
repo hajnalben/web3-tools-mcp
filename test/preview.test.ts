@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest'
 import { encodeFunctionData, maxUint256, parseAbiItem, parseUnits } from 'viem'
+import { describe, expect, it } from 'vitest'
 import { buildTxPreview } from '../src/preview.js'
 
 const USDC_BASE = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913'

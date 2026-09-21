@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeAll } from 'vitest'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import { beforeAll, describe, expect, it } from 'vitest'
 import { startHttpServer } from '../src/http-server.js'
 import { pkce } from '../src/oauth.js'
 import { registerAllTools } from '../src/tools/index.js'

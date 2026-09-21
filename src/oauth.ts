@@ -1,13 +1,13 @@
-import { randomBytes, createHash, timingSafeEqual } from 'node:crypto'
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import type { Response } from 'express'
-import type { OAuthServerProvider, AuthorizationParams } from '@modelcontextprotocol/sdk/server/auth/provider.js'
 import type { OAuthRegisteredClientsStore } from '@modelcontextprotocol/sdk/server/auth/clients.js'
-import type { OAuthClientInformationFull, OAuthTokens } from '@modelcontextprotocol/sdk/shared/auth.js'
-import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js'
 import { InvalidTokenError } from '@modelcontextprotocol/sdk/server/auth/errors.js'
+import type { AuthorizationParams, OAuthServerProvider } from '@modelcontextprotocol/sdk/server/auth/provider.js'
+import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js'
+import type { OAuthClientInformationFull, OAuthTokens } from '@modelcontextprotocol/sdk/shared/auth.js'
+import type { Response } from 'express'
 import { getKeyValueStorage, type KeyValueStorage } from './kv-storage.js'
 
 /**
@@ -161,8 +161,9 @@ export class SingleUserOAuthProvider implements OAuthServerProvider {
     // Everything except the token itself is replayed into the form, so the handler sees a
     // complete authorization request when the form posts back.
     const fields = Object.fromEntries(
-      Object.entries({ ...(request.query as Record<string, string>), ...(request.body as Record<string, string>) })
-        .filter(([name, value]) => name !== 'token' && typeof value === 'string')
+      Object.entries({ ...(request.query as Record<string, string>), ...(request.body as Record<string, string>) }).filter(
+        ([name, value]) => name !== 'token' && typeof value === 'string'
+      )
     ) as Record<string, string>
 
     if (request.method !== 'POST') {
@@ -200,10 +201,7 @@ export class SingleUserOAuthProvider implements OAuthServerProvider {
     return stored.codeChallenge
   }
 
-  async exchangeAuthorizationCode(
-    client: OAuthClientInformationFull,
-    authorizationCode: string
-  ): Promise<OAuthTokens> {
+  async exchangeAuthorizationCode(client: OAuthClientInformationFull, authorizationCode: string): Promise<OAuthTokens> {
     const stored = await this.store.get<StoredCode>(`code:${authorizationCode}`)
     if (!stored || stored.expiresAt < Date.now()) throw new Error('Authorization code is invalid or expired')
     if (stored.clientId !== client.client_id) throw new Error('Authorization code was issued to a different client')
@@ -230,7 +228,13 @@ export class SingleUserOAuthProvider implements OAuthServerProvider {
     await this.store.set<StoredToken>(`token:${accessToken}`, { clientId, scopes, expiresAt })
     await this.store.set<StoredToken>(`refresh:${refreshToken}`, { clientId, scopes, expiresAt })
 
-    return { access_token: accessToken, token_type: 'Bearer', expires_in: TOKEN_TTL, refresh_token: refreshToken, scope: scopes.join(' ') }
+    return {
+      access_token: accessToken,
+      token_type: 'Bearer',
+      expires_in: TOKEN_TTL,
+      refresh_token: refreshToken,
+      scope: scopes.join(' ')
+    }
   }
 
   /** Accepts an issued token, or MCP_TOKEN itself so a client that can send a header still works. */

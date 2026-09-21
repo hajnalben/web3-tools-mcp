@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import logsTools from '../../src/tools/logs.js'
 
 describe('Logs Tools', () => {

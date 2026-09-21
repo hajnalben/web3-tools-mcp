@@ -1,5 +1,5 @@
-import { describe, it, expect, afterEach } from 'vitest'
 import { createServer, type Server } from 'node:http'
+import { afterEach, describe, expect, it } from 'vitest'
 import { startHttpServer } from '../src/http-server.js'
 import { getKeyValueStorage } from '../src/kv-storage.js'
 

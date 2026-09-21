@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import advancedTools from '../../src/tools/advanced.js'
 
 describe('Advanced Tools', () => {
@@ -262,6 +262,5 @@ describe('Advanced Tools', () => {
         expect(error).toBeDefined()
       }
     }, 30000)
-
   })
 })

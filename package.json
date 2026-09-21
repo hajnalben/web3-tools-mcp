@@ -21,6 +21,9 @@
     "clean": "rm -rf dist",
     "build": "npm run clean && npm run build -w web3-wallet-relay && tsc && cp src/erc7730-index.json.gz dist/",
     "watch": "tsc --watch",
+    "typecheck": "tsc -p tsconfig.test.json",
+    "lint": "biome check",
+    "format": "biome check --write",
     "start:wallet": "npm start -w web3-wallet-relay",
     "prepare": "npm run build",
     "test": "vitest run",
@@ -63,6 +66,7 @@
     "zod": "^3.25.76"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.5.14",
     "@types/express": "^5.0.6",
     "@types/node": "^20.19.23",
     "@types/qrcode-terminal": "^0.12.2",

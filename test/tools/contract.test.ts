@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import contractTools from '../../src/tools/contract.js'
 
 describe('Contract Tools', () => {

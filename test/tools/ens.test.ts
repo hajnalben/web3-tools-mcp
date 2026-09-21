@@ -1,8 +1,7 @@
-import { describe, it, expect } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import ensTools from '../../src/tools/ens.js'
 
 describe('ENS Tools', () => {
-
   describe('resolve_ens_name', () => {
     it('should resolve vitalik.eth to an address', async () => {
       const result = await ensTools.resolve_ens_name.handler({

@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest'
-import { PhoneSigner } from '../src/walletconnect.js'
+import { describe, expect, it } from 'vitest'
 import { getClientManager } from '../src/client.js'
+import { PhoneSigner } from '../src/walletconnect.js'
 
 const projectId = process.env.WALLETCONNECT_PROJECT_ID
 

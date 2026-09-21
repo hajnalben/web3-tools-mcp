@@ -1,7 +1,7 @@
-import { describe, it, expect } from 'vitest'
 import { encodeFunctionData, maxUint256, parseAbiItem, parseUnits } from 'viem'
-import { buildTxPreview } from '../src/preview.js'
+import { describe, expect, it } from 'vitest'
 import { lookupContract, protocolLabel } from '../src/clear-signing.js'
+import { buildTxPreview } from '../src/preview.js'
 
 const USDC_MAINNET = '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48'
 const AAVE_V3_POOL = '0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2'

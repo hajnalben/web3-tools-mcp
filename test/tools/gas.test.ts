@@ -1,8 +1,7 @@
-import { describe, it, expect } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import gasTools from '../../src/tools/gas.js'
 
 describe('Gas Tools', () => {
-
   describe('get_gas_price', () => {
     it('should get current gas prices for mainnet', async () => {
       const result = await gasTools.get_gas_price.handler({

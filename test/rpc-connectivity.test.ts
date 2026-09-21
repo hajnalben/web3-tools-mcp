@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll } from 'vitest'
+import { beforeAll, describe, expect, it } from 'vitest'
 import { initializeClientManager, SUPPORTED_CHAINS } from '../src/client.js'
 import type { Config } from '../src/types.js'
 
@@ -16,17 +16,17 @@ describe('RPC Connectivity', () => {
   })
 
   it('should fetch block number for all default RPCs', async () => {
-    const testChains = SUPPORTED_CHAINS.filter(chain => chain !== 'localhost')
+    const testChains = SUPPORTED_CHAINS.filter((chain) => chain !== 'localhost')
 
     const results = await Promise.allSettled(
-      testChains.map(async chainName => {
+      testChains.map(async (chainName) => {
         const client = clientManager.getClient(chainName)
         const blockNumber = await client.getBlockNumber()
         return { chainName, blockNumber }
       })
     )
 
-    const succeeded = results.filter(r => r.status === 'fulfilled')
+    const succeeded = results.filter((r) => r.status === 'fulfilled')
     expect(succeeded.length).toBe(testChains.length)
   }, 60000)
 })
