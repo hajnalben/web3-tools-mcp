@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { getWalletClient } from '../wallet-client.js'
 import { getClientManager, SUPPORTED_CHAINS } from '../client.js'
-import { encodeFunctionData, isAddress, parseAbiItem, parseUnits, type AbiFunction, type Address } from 'viem'
+import { encodeFunctionData, isAddress, parseAbiItem, parseUnits, toHex, type AbiFunction, type Address } from 'viem'
 import { randomBytes } from 'node:crypto'
 import type { ChainName } from '../types.js'
 import { buildTxPreview, type RawTx, type TxPreview } from '../preview.js'
@@ -203,23 +203,30 @@ export default {
 
   sign_message: createTool(
     'Sign Message',
-    'Sign a message with the connected wallet. Opens browser wallet for approval.',
+    'Sign a message with the connected wallet — a paired phone if there is one, otherwise the browser wallet.',
     z.object({
       message: z.string().describe('Message to sign')
     }),
     async (args) => {
       try {
-        const signature = await getWalletClient().request({
-          id: generateRequestId(),
-          type: 'sign_message',
-          chain: 'any',
-          data: { message: args.message }
-        })
+        // Same precedence as transactions: a hosted server has no browser to fall back on.
+        const phone = getPhoneSigner()
+        const session = await phone?.session()
+
+        const signature = session
+          ? await phone!.request('mainnet', 'personal_sign', [toHex(args.message), session.accounts[0]])
+          : await getWalletClient().request({
+              id: generateRequestId(),
+              type: 'sign_message',
+              chain: 'any',
+              data: { message: args.message }
+            })
 
         return formatResponse({
           success: true,
           message: args.message,
           signature,
+          signedWith: session ? 'phone' : 'browser',
           signatureType: 'personal_sign'
         })
       } catch (error) {
