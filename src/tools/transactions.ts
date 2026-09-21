@@ -78,10 +78,27 @@ function previewSummary(preview: TxPreview) {
   }
 }
 
+/**
+ * WalletConnect rejects with a plain `{ code, message }` rather than an Error, which
+ * String() renders as "[object Object]" — the reason a wallet gave for refusing is the
+ * whole point of the message, so dig it out.
+ */
+function describeError(error: unknown): string {
+  if (error instanceof Error) return error.message
+  if (error && typeof error === 'object') {
+    const { message, code, reason } = error as { message?: string; code?: number; reason?: string }
+    const text = message ?? reason
+    if (text) return code === undefined ? text : `${text} (code ${code})`
+    return JSON.stringify(error)
+  }
+  return String(error)
+}
+
 function failure(error: unknown, message: string) {
+  console.error('[Transaction]', message, '—', describeError(error))
   return formatResponse({
     success: false,
-    error: error instanceof Error ? error.message : String(error),
+    error: describeError(error),
     message
   })
 }
