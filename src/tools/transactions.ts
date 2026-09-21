@@ -284,13 +284,25 @@ export default {
 
         const chains = (args.chains ?? SUPPORTED_CHAINS.filter((c) => c !== 'localhost')) as ChainName[]
         const uri = await phone.pair(chains)
+        const encoded = encodeURIComponent(uri)
 
         return formatResponse({
           qr: await qrFor(uri),
           uri,
+          // For an agent running on the phone itself there is nothing to scan. Schemes come
+          // from WalletConnect's wallet registry rather than guesswork, and native links are
+          // preferred over universal ones, which some chat apps swallow or divert to an app
+          // store. Pasting the uri works in every wallet when a link misbehaves.
+          openOnThisDevice: {
+            rabby: `rabby://wc?uri=${encoded}`,
+            metamask: `metamask://wc?uri=${encoded}`,
+            trust: `trust://wc?uri=${encoded}`,
+            rainbow: `rainbow://wc?uri=${encoded}`
+          },
           message:
-            'Scan this QR with your phone wallet (MetaMask, Rabby, Trust…), or open the uri on the phone. ' +
-            'Approve the session, then run wallet_status to confirm.'
+            'On another device: scan the QR with your wallet. On this device: tap one of the openOnThisDevice ' +
+            'links, or copy the uri and paste it into your wallet under WalletConnect — every wallet supports ' +
+            'that, and it is the one that always works. Then run wallet_status to confirm.'
         })
       } catch (error) {
         return failure(error, 'Could not start WalletConnect pairing')
