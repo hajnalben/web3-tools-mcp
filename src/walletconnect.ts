@@ -146,6 +146,59 @@ export class PhoneSigner {
   }
 }
 
+interface WalletEntry {
+  name: string
+  native?: string
+  universal?: string
+}
+
+let wallets: WalletEntry[] | undefined
+
+/**
+ * Wallets from WalletConnect's registry, so the links we hand out are the schemes each
+ * wallet actually registered rather than ones we invented. Fetched once per process; a
+ * failure is not fatal, it just means no ready-made links.
+ */
+async function walletRegistry(projectId: string): Promise<WalletEntry[]> {
+  if (wallets) return wallets
+
+  try {
+    const response = await fetch(`https://explorer-api.walletconnect.com/v3/wallets?projectId=${projectId}&entries=100&page=1`)
+    const listings = ((await response.json()) as { listings?: Record<string, { name: string; mobile?: WalletEntry }> }).listings ?? {}
+
+    wallets = Object.values(listings)
+      .map(({ name, mobile }) => ({ name, native: mobile?.native || undefined, universal: mobile?.universal || undefined }))
+      .filter((wallet) => wallet.native || wallet.universal)
+  } catch {
+    wallets = []
+  }
+
+  return wallets
+}
+
+/**
+ * Links that open a wallet straight onto this pairing, for when the agent is running on
+ * the phone itself and there is no second screen to scan from.
+ *
+ * Native schemes are preferred over universal links: chat apps are documented to mishandle
+ * the latter, opening the wallet with no prompt or diverting to an app store.
+ */
+export async function pairingLinks(projectId: string, uri: string, search?: string): Promise<Record<string, string>> {
+  const registry = await walletRegistry(projectId)
+  const encoded = encodeURIComponent(uri)
+
+  const matches = search
+    ? registry.filter((wallet) => wallet.name.toLowerCase().includes(search.toLowerCase()))
+    : registry.slice(0, 12)
+
+  return Object.fromEntries(
+    matches.map((wallet) => {
+      const base = wallet.native ?? `${wallet.universal?.replace(/\/$/, '')}/`
+      return [wallet.name, `${base}wc?uri=${encoded}`]
+    })
+  )
+}
+
 let signer: PhoneSigner | null = null
 
 /** Configured only when a WalletConnect project id is present. */

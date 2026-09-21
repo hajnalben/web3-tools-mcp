@@ -5,7 +5,7 @@ import { encodeFunctionData, isAddress, parseAbiItem, parseUnits, toHex, type Ab
 import { randomBytes } from 'node:crypto'
 import type { ChainName } from '../types.js'
 import { buildTxPreview, type RawTx, type TxPreview } from '../preview.js'
-import { getPhoneSigner } from '../walletconnect.js'
+import { getPhoneSigner, pairingLinks } from '../walletconnect.js'
 import { createTool, formatResponse } from '../utils.js'
 import qrcode from 'qrcode-terminal'
 
@@ -259,7 +259,11 @@ export default {
       chains: z
         .array(z.enum(SUPPORTED_CHAINS))
         .optional()
-        .describe('Chains to request access to (defaults to every supported network)')
+        .describe('Chains to request access to (defaults to every supported network)'),
+      wallet: z
+        .string()
+        .optional()
+        .describe('Name of the wallet to open, e.g. "rabby" — omit to list the common ones')
     }),
     async (args) => {
       const phone = getPhoneSigner()
@@ -284,21 +288,14 @@ export default {
 
         const chains = (args.chains ?? SUPPORTED_CHAINS.filter((c) => c !== 'localhost')) as ChainName[]
         const uri = await phone.pair(chains)
-        const encoded = encodeURIComponent(uri)
+        const projectId = getClientManager().getConfig().walletConnectProjectId as string
 
         return formatResponse({
           qr: await qrFor(uri),
           uri,
-          // For an agent running on the phone itself there is nothing to scan. Schemes come
-          // from WalletConnect's wallet registry rather than guesswork, and native links are
-          // preferred over universal ones, which some chat apps swallow or divert to an app
-          // store. Pasting the uri works in every wallet when a link misbehaves.
-          openOnThisDevice: {
-            rabby: `rabby://wc?uri=${encoded}`,
-            metamask: `metamask://wc?uri=${encoded}`,
-            trust: `trust://wc?uri=${encoded}`,
-            rainbow: `rainbow://wc?uri=${encoded}`
-          },
+          // For an agent running on the phone itself there is nothing to scan, so hand over
+          // links that open the wallet directly. `wallet` narrows the list to one.
+          openOnThisDevice: await pairingLinks(projectId, uri, args.wallet),
           message:
             'On another device: scan the QR with your wallet. On this device: tap one of the openOnThisDevice ' +
             'links, or copy the uri and paste it into your wallet under WalletConnect — every wallet supports ' +
