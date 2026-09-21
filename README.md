@@ -314,6 +314,8 @@ Visit the wallet URL printed by the server (`wallet_status` also returns it) any
 ```bash
 npx web3-tools-mcp --custom-rpc '{"mainnet":"https://my-rpc.com","base":"https://base-rpc.com"}'
 ```
+Or set `CUSTOM_RPC` to the same JSON, which is what a hosted deployment does. See
+[.env.example](.env.example) for every setting.
 
 ### RPC Failover
 Automatic provider selection: Alchemy → Infura → Public RPCs
@@ -326,13 +328,18 @@ Many tools support batching for improved efficiency (contract calls, balances, E
 - Node.js ≥ 20.0.0
 - Internet connection for RPC calls
 
-## Testing
+## Development
 
 ```bash
-npm test              # Run all tests
-npm run test:watch   # Watch mode
-npm run test:ui      # UI mode
+npm install && npm run build
+npm run lint          # Biome; `npm run format` fixes what it can
+npm run typecheck
+npm test              # also: test:watch, test:ui
 ```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for running your checkout against a client, the
+repository layout, and how to add a chain or a tool. Release notes are in
+[CHANGELOG.md](CHANGELOG.md).
 
 ## License
 
