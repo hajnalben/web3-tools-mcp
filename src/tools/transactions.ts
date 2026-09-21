@@ -303,15 +303,9 @@ export default {
     'Check if a wallet is connected to the browser interface',
     z.object({}),
     async () => {
-      const wallet = getWalletClient()
-
-      try {
-        await wallet.connect()
-      } catch (error) {
-        return failure(error, 'Wallet relay unavailable')
-      }
-
-      // A paired phone is the signer of record, so report it before the browser page.
+      // A paired phone is the signer of record, so look there first. Connecting to the
+      // browser relay before checking would start one on a hosted server, which has no
+      // browser to open it in.
       const phone = getPhoneSigner()
       const phoneSession = await phone?.session().catch(() => undefined)
       if (phoneSession) {
@@ -323,6 +317,13 @@ export default {
           chains: phoneSession.chains,
           message: 'A phone wallet is paired over WalletConnect. Transactions are sent there for signing.'
         })
+      }
+
+      const wallet = getWalletClient()
+      try {
+        await wallet.connect()
+      } catch (error) {
+        return failure(error, 'Wallet relay unavailable')
       }
 
       if (!wallet.isConnected()) wallet.openBrowser()

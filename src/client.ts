@@ -33,7 +33,8 @@ function getRpcUrl(chainName: string, config: Config): string {
 
     base: config.alchemyApiKey
       ? `https://base-mainnet.g.alchemy.com/v2/${config.alchemyApiKey}`
-      : 'https://base-rpc.publicnode.com',
+      // publicnode refuses receipts and anything else it calls an archive request
+      : 'https://mainnet.base.org',
 
     arbitrum: config.alchemyApiKey
       ? `https://arb-mainnet.g.alchemy.com/v2/${config.alchemyApiKey}`
@@ -45,7 +46,8 @@ function getRpcUrl(chainName: string, config: Config): string {
       ? `https://polygon-mainnet.g.alchemy.com/v2/${config.alchemyApiKey}`
       : config.infuraApiKey
         ? `https://polygon-mainnet.infura.io/v3/${config.infuraApiKey}`
-        : 'https://polygon-rpc.com',
+        // polygon-rpc.com now answers 401 "API key disabled" to anonymous callers
+        : 'https://polygon-bor-rpc.publicnode.com',
 
     optimism: config.alchemyApiKey
       ? `https://opt-mainnet.g.alchemy.com/v2/${config.alchemyApiKey}`
