@@ -263,7 +263,14 @@ export default {
       wallet: z
         .string()
         .optional()
-        .describe('Name of the wallet to open, e.g. "rabby" — omit to list the common ones')
+        .describe('Name of the wallet to open, e.g. "rabby" — omit to list the common ones'),
+      agent: z
+        .string()
+        .optional()
+        .describe(
+          'Who is asking, shown in the wallet approval dialog, e.g. "Claude Code". Say who you actually are — ' +
+            'the user reads this when deciding whether to grant signing access.'
+        )
     }),
     async (args) => {
       const phone = getPhoneSigner()
@@ -287,7 +294,7 @@ export default {
         }
 
         const chains = (args.chains ?? SUPPORTED_CHAINS.filter((c) => c !== 'localhost')) as ChainName[]
-        const uri = await phone.pair(chains)
+        const uri = await phone.pair(chains, args.agent)
         const projectId = getClientManager().getConfig().walletConnectProjectId as string
 
         return formatResponse({
@@ -296,6 +303,9 @@ export default {
           // For an agent running on the phone itself there is nothing to scan, so hand over
           // links that open the wallet directly. `wallet` narrows the list to one.
           openOnThisDevice: await pairingLinks(projectId, uri, args.wallet),
+          // Approving grants an agent standing permission to request signatures, so the
+          // wallet dialog names the agent rather than implying a website is connecting.
+          shownInWallet: args.agent ? `${args.agent} via web3-tools-mcp` : 'web3-tools-mcp (AI agent)',
           message:
             'On another device: scan the QR with your wallet. On this device: tap one of the openOnThisDevice ' +
             'links, or copy the uri and paste it into your wallet under WalletConnect — every wallet supports ' +

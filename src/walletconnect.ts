@@ -51,6 +51,8 @@ export class PhoneSigner {
   private client: SignClientType | undefined
   private starting: Promise<void> | undefined
   private pairing: { uri: string; expiresAt: number } | undefined
+  /** Label shown in the wallet; whoever is driving this server says who they are. */
+  private agent: string | undefined
 
   constructor(private projectId: string) {}
 
@@ -66,12 +68,13 @@ export class PhoneSigner {
       this.client = (await SignClient.init({
         projectId: this.projectId,
         ...(storage ? { storage } : { storageOptions: { database: storePath() } }),
-        // The wallet shows this in its approval dialogs, so it has to identify the server
-        // asking for the signature. Pointing it at the source repository made Rabby display
-        // "github" — as if GitHub were requesting it.
+        // What the wallet shows when asking you to approve. Approving does not connect a
+        // website — it lets an agent request signatures for as long as the session lives,
+        // so the dialog says that. The name is self-reported and proves nothing; the URL
+        // is what distinguishes this server from any other.
         metadata: {
-          name: 'web3-tools-mcp',
-          description: 'Blockchain tools for AI agents',
+          name: this.agent ? `${this.agent} via web3-tools-mcp` : 'web3-tools-mcp (AI agent)',
+          description: 'An AI agent uses this server to request transactions. You approve each one here.',
           url: serverUrl(),
           icons: []
         }
@@ -110,7 +113,14 @@ export class PhoneSigner {
    * background — a tool result only reaches the user once it returns, so blocking here
    * would hide the QR they are supposed to scan.
    */
-  async pair(chains: ChainName[]): Promise<string> {
+  async pair(chains: ChainName[], agent?: string): Promise<string> {
+    // Metadata is fixed when the client starts, so a new label needs a new client. Only
+    // safe while nothing is connected — an existing session owns the old client.
+    if (agent && agent !== this.agent && this.client && this.client.session.getAll().length === 0) {
+      this.client = undefined
+    }
+    if (agent) this.agent = agent
+
     await this.start()
     if (!this.client) throw new Error('WalletConnect failed to start')
 
