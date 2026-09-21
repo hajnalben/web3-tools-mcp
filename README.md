@@ -14,15 +14,19 @@ Every transaction is decoded, named and simulated before you approve it.
 
 </div>
 
-**Desktop apps** run it locally — paste a few lines of JSON and you are done:
+**Claude Desktop, Cursor, VS Code, Windsurf** and **Claude Code** launch it on your machine.
+One entry in that client's MCP config:
 
 ```json
 { "mcpServers": { "web3-tools": { "command": "npx", "args": ["-y", "web3-tools-mcp"] } } }
 ```
 
-**Web apps** — ChatGPT, Grok, claude.ai — can only reach a URL, so
-[host it once ↓](#-hosting) and connect with OAuth. No keys to paste, nothing
-running on your laptop.
+Each app keeps that config somewhere different —
+[the file paths are below ↓](#-setup). You need Node.js ≥ 20; `npx` fetches the rest.
+
+**ChatGPT, Grok** and **claude.ai** cannot launch anything locally — they only reach a URL.
+[Host it once ↓](#-hosting) and add it as a connector, and there is nothing running on your
+laptop at all.
 
 It runs with no API keys at all — reads on recent state work on public RPCs, and signing
 previews still decode. Keys widen what it can reach; [see what each unlocks ↓](#-setup).
@@ -72,9 +76,9 @@ Four things go into that panel:
 **Your agent runs wherever it likes. Your keys stay in your pocket.**
 
 A phone can't host a local signing page — so it doesn't have to. Point the server at a
-[WalletConnect](https://dashboard.reown.com) project id and it talks to your wallet app
-directly, over WalletConnect's own end-to-end encrypted relay. Nothing to load, nothing to
-host, no browser anywhere in the path.
+[WalletConnect](https://dashboard.walletconnect.com) project id and it talks to your wallet
+app directly, over WalletConnect's own end-to-end encrypted relay. Nothing to load, nothing
+to host, no browser anywhere in the path.
 
 ```bash
 npx web3-tools-mcp --walletconnect-project-id YOUR_PROJECT_ID
@@ -84,7 +88,7 @@ npx web3-tools-mcp --walletconnect-project-id YOUR_PROJECT_ID
 | --- | --- |
 | 📷 | **Pair once.** Ask the agent to run `pair_phone_wallet`. You get a QR to scan — or, when the agent is already on your phone, a tap-through link straight into your wallet app |
 | 💾 | **It sticks.** The session is stored on disk (or in Redis when hosted), so it survives restarts and redeploys. Pair once, not once a day |
-| ✍️ | **It takes over.** While a phone is paired it signs everything; the browser page takes back over when it isn't |
+| ✍️ | **You choose each time.** Every signing tool takes a required `signWith`, so the agent asks whether this one goes to your phone or the browser. A paired phone never quietly claims a request |
 | 🧾 | **You still see the decode.** The full preview comes back in the tool response — your wallet shows its own summary, so read ours before you approve theirs |
 | 🔌 | **Drop it any time.** `disconnect_phone_wallet` clears every session and pairing |
 
@@ -123,7 +127,7 @@ returns the page URL any time you want to open it yourself.
 ### ✍️ Transactions & signing
 | Tool | |
 | --- | --- |
-| `call_contract_write` | Run a state-changing function through your wallet |
+| `write_contract` | Send a transaction calling a state-changing function, via your wallet |
 | `send_native_token` | Send ETH or a native token |
 | `send_erc20_token` | Send an ERC-20 |
 | `sign_message` | Sign a message |
@@ -131,10 +135,14 @@ returns the page URL any time you want to open it yourself.
 | `pair_phone_wallet` | Pair a phone over WalletConnect, returns a QR |
 | `disconnect_phone_wallet` | Drop every WalletConnect session and pairing |
 
+The four signing tools take a required `signWith` of `phone` or `browser`. There is no
+default on purpose — the agent has to ask you, so a request never lands on a device you are
+not holding.
+
 ### 📜 Contracts
 | Tool | |
 | --- | --- |
-| `call_contract_function` | Call view/pure functions — batched |
+| `read_contract` | Read state via view/pure functions — batched, no wallet, no gas |
 | `simulate_contract` | Simulate without broadcasting, with gas |
 | `get_contract_abi` | ABI, with proxy detection and verification status |
 | `get_contract_source_code` | Verified source, proxies included |
@@ -193,20 +201,18 @@ Adding one is a single entry in [`mcp/src/chains.ts`](mcp/src/chains.ts).
 
 ## 🔧 Setup
 
-| Your client | Runs the server | What to do |
+<details open>
+<summary>🖥️ <b>Local clients</b> — where the config file lives</summary>
+
+Add the entry below to your client's MCP config, then restart the app. Every one of these
+also has a UI route that creates the file for you, which is usually quicker than finding it:
+
+| Client | Config file | Or via the UI |
 | --- | --- | --- |
-| 🖥️ **Claude Desktop** | on your machine | Add the JSON below |
-| 🤖 **ChatGPT** | *remote only* | [Host it ↓](#-hosting), then add a connector |
-| 🦾 **Grok** | *remote only* | [Host it ↓](#-hosting), then add a connector |
-| 🌐 **claude.ai** | *remote only* | [Host it ↓](#-hosting), then add a connector |
-| ⌨️ **Claude Code** | on your machine | One command |
-| 🧑‍💻 **Cursor, VS Code, Windsurf, Zed** | on your machine | Add the JSON below |
-
-<details>
-<summary>🖥️ <b>Claude Desktop, Cursor, VS Code</b> and other local clients</summary>
-
-Add this to the client's MCP config — `claude_desktop_config.json` for Claude Desktop,
-`.cursor/mcp.json` for Cursor, `.vscode/mcp.json` for VS Code — and restart it:
+| **Claude Desktop** | macOS `~/Library/Application Support/Claude/claude_desktop_config.json`<br>Windows `%APPDATA%\Claude\claude_desktop_config.json`<br>Linux `~/.config/Claude/claude_desktop_config.json` | Settings → Developer → **Edit Config** |
+| **Cursor** | `~/.cursor/mcp.json` (all projects)<br>`.cursor/mcp.json` (this project) | Settings → Tools & MCP → **Add new MCP server** |
+| **VS Code** | `.vscode/mcp.json` (workspace)<br>or your user profile | Command Palette → **MCP: Add Server** |
+| **Windsurf** | `~/.codeium/windsurf/mcp_config.json`<br>global only, no per-project | Cascade panel → **MCP** icon |
 
 ```json
 {
@@ -223,9 +229,15 @@ Add this to the client's MCP config — `claude_desktop_config.json` for Claude 
 }
 ```
 
-Node.js ≥ 20 has to be on your PATH — `npx` fetches the rest. Drop the whole `env` block if
-you have no keys yet: the server runs without them, with less reach. **🔑 API keys** below
-says exactly what each one turns on.
+Drop the whole `env` block if you have no keys yet: the server runs without them, with less
+reach. **🔑 API keys** below says exactly what each one turns on.
+
+> ⚠️ **VS Code is the exception.** Its `mcp.json` nests servers under `"servers"`, not
+> `"mcpServers"` — paste the block above unchanged and it is silently ignored:
+>
+> ```json
+> { "servers": { "web3-tools": { "command": "npx", "args": ["-y", "web3-tools-mcp"] } } }
+> ```
 
 </details>
 
@@ -275,7 +287,7 @@ What you lose is reach, not stability — so here is the honest version:
 
 | Key | Free from | Without it |
 | --- | --- | --- |
-| `WALLETCONNECT_PROJECT_ID` | [reown](https://dashboard.reown.com) | 📱 **No phone signing at all.** Browser wallet only, so a hosted instance has no way to sign |
+| `WALLETCONNECT_PROJECT_ID` | [walletconnect](https://dashboard.walletconnect.com) | 📱 **No phone signing at all.** Browser wallet only, so a hosted instance has no way to sign |
 | `ALCHEMY_API_KEY`<br>or `INFURA_API_KEY`<br>or `CUSTOM_RPC` | [alchemy](https://alchemy.com) · [infura](https://infura.io) | **No historical state.** Public endpoints answer `403 Archive requests require a personal token`, which takes out balances, storage and calls at a past block, event ranges, and `trace_transaction` |
 | `ETHERSCAN_API_KEY` | [etherscan](https://etherscan.io/apis) | `get_contract_abi`, `get_contract_source_code` and `get_contract_source_file` refuse. Signing previews still decode — they try Sourcify first, then recover the ABI from bytecode |
 | `HYPERSYNC_API_KEY` | [envio](https://envio.dev) | Event queries fall back to plain RPC — slower, and past ranges then need one of the provider keys above |
@@ -386,7 +398,7 @@ Locally nothing changes: the server embeds the same relay.
 ## 🔄 How signing works
 
 1. 🤖 A transaction tool runs. The server decodes and simulates the transaction first.
-2. 📨 It reaches your signer — the paired phone, or the browser page.
+2. 📨 It goes to the signer you picked — your phone, or the browser page.
 3. 👀 You read the summary and approve or reject in your wallet.
 4. 🔗 The result, with an explorer link, comes back to the agent.
 

@@ -111,7 +111,7 @@ export default {
 
   encode_function_data: createTool(
     'Encode Function Call Data',
-    'Encode a function call with parameters into transaction data. Use this before calling call_contract_write.',
+    'Encode a function call with parameters into transaction data. Use this before calling write_contract.',
     z.object({
       functionAbi: z.string().describe('Function ABI definition (e.g., "function transfer(address to, uint256 amount)")'),
       args: z
@@ -134,7 +134,7 @@ export default {
         functionSignature: toFunctionSignature(abiItem),
         selector: data.slice(0, 10),
         encodedArgs: data.slice(10),
-        message: 'Function data encoded successfully. Use this data with call_contract_write tool.'
+        message: 'Function data encoded successfully. Use this data with write_contract tool.'
       })
     }
   )

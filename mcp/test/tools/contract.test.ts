@@ -62,12 +62,12 @@ describe('Contract Tools', () => {
     }, 30000)
   })
 
-  describe('call_contract_function', () => {
+  describe('read_contract', () => {
     it('should call USDC balanceOf function', async () => {
       const USDC_CONTRACT = '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48'
       const HOLDER_ADDRESS = '0x28C6c06298d514Db089934071355E5743bf21d60' // Binance 14
 
-      const result = await contractTools.call_contract_function.handler({
+      const result = await contractTools.read_contract.handler({
         calls: [
           {
             chain: 'mainnet',
@@ -89,7 +89,7 @@ describe('Contract Tools', () => {
     it('should call USDC name, symbol, and decimals functions in batch', async () => {
       const USDC_CONTRACT = '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48'
 
-      const result = await contractTools.call_contract_function.handler({
+      const result = await contractTools.read_contract.handler({
         calls: [
           {
             chain: 'mainnet',
@@ -135,7 +135,7 @@ describe('Contract Tools', () => {
         const USDC_CONTRACT = '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48'
         const BLOCK_NUMBER = '18000000'
 
-        const result = await contractTools.call_contract_function.handler({
+        const result = await contractTools.read_contract.handler({
           calls: [
             {
               chain: 'mainnet',
@@ -161,7 +161,7 @@ describe('Contract Tools', () => {
       const OWNER = '0x28C6c06298d514Db089934071355E5743bf21d60'
       const SPENDER = '0x0000000000000000000000000000000000000001'
 
-      const result = await contractTools.call_contract_function.handler({
+      const result = await contractTools.read_contract.handler({
         calls: [
           {
             chain: 'mainnet',
@@ -184,7 +184,7 @@ describe('Contract Tools', () => {
       const USDC_MAINNET = '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48'
       const USDC_BASE = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913'
 
-      const result = await contractTools.call_contract_function.handler({
+      const result = await contractTools.read_contract.handler({
         calls: [
           {
             chain: 'mainnet',
@@ -213,7 +213,7 @@ describe('Contract Tools', () => {
     it('should handle boolean return values', async () => {
       const USDC_CONTRACT = '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48'
 
-      const result = await contractTools.call_contract_function.handler({
+      const result = await contractTools.read_contract.handler({
         calls: [
           {
             chain: 'mainnet',
@@ -235,7 +235,7 @@ describe('Contract Tools', () => {
 
       // USDC doesn't have a multi-return function in standard ERC20, but we can test the structure
       // Let's use a function that exists and check the result format
-      const result = await contractTools.call_contract_function.handler({
+      const result = await contractTools.read_contract.handler({
         calls: [
           {
             chain: 'mainnet',
@@ -256,7 +256,7 @@ describe('Contract Tools', () => {
       const USDC_CONTRACT = '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48'
 
       // Try to call a function that doesn't exist or will revert
-      const result = await contractTools.call_contract_function.handler({
+      const result = await contractTools.read_contract.handler({
         calls: [
           {
             chain: 'mainnet',

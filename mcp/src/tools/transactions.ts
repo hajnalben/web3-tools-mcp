@@ -28,26 +28,52 @@ function explorerTxUrl(chain: ChainName, txHash: unknown): string | undefined {
 }
 
 /**
- * Send a transaction for signing.
+ * Which wallet to send the request to. Deliberately required on every signing tool: both
+ * signers can be live at once, and only the person holding the devices knows which one is
+ * actually to hand. Guessing strands the request in front of a screen nobody is looking at.
  *
- * A paired phone wins over the browser page: it was set up deliberately and is the only
- * option when there is no browser to open. Either way the transaction is decoded and
- * simulated first — the phone wallet shows its own summary, so the preview is returned to
- * the caller as well, where it can be read before the prompt is approved.
+ * Either way the transaction is decoded and simulated first — the wallet shows its own
+ * summary, so the preview is returned to the caller too, to be read before approving.
  */
-async function requestSignature(chain: ChainName, tx: RawTx & { data?: string }) {
+const SignWithSchema = z
+  .enum(['phone', 'browser'])
+  .describe(
+    'Where to approve this: "phone" for a paired WalletConnect wallet, "browser" for the wallet page on this machine. Ask the user which they want — do not assume, even when only one is connected. wallet_status lists what is available.'
+  )
+
+type SignWith = z.infer<typeof SignWithSchema>
+
+async function signOnPhone(chain: ChainName, tx: RawTx & { data?: string }) {
   const phone = getPhoneSigner()
+  if (!phone) {
+    throw new Error(
+      'Phone signing is not configured on this server. Set WALLETCONNECT_PROJECT_ID, or sign in the browser instead.'
+    )
+  }
+  if (!(await phone.isPaired())) {
+    throw new Error('No phone wallet is paired. Run pair_phone_wallet and scan the QR, or sign in the browser instead.')
+  }
 
-  if (await phone?.isPaired()) {
-    const session = await phone!.session()
-    const from = session?.accounts[0]
-    const preview = await buildTxPreview(chain, tx, from)
+  const session = await phone.session()
+  const from = session?.accounts[0]
+  const preview = await buildTxPreview(chain, tx, from)
 
-    const txHash = await phone!.request(chain, 'eth_sendTransaction', [
-      { from, to: tx.to, value: tx.value ?? '0x0', ...(tx.data && { data: tx.data }) }
-    ])
+  const txHash = await phone.request(chain, 'eth_sendTransaction', [
+    { from, to: tx.to, value: tx.value ?? '0x0', ...(tx.data && { data: tx.data }) }
+  ])
 
-    return { txHash, preview, signedWith: 'phone' as const }
+  return { txHash, preview, signedWith: 'phone' as const }
+}
+
+async function requestSignature(chain: ChainName, tx: RawTx & { data?: string }, signWith: SignWith) {
+  if (signWith === 'phone') return signOnPhone(chain, tx)
+
+  // A hosted server has no browser of its own to open, so say that rather than waiting for
+  // a signer that can never arrive.
+  if (process.env.MCP_HTTP_PORT) {
+    throw new Error(
+      'This server is hosted, so there is no browser wallet to open. Pair a phone with pair_phone_wallet and sign there.'
+    )
   }
 
   const wallet = getWalletClient()
@@ -106,19 +132,24 @@ function failure(error: unknown, message: string) {
 export default {
   send_native_token: createTool(
     'Send Native Token',
-    'Send native tokens (ETH, MATIC, BNB, etc.) to an address. Simulates the transaction, then opens the browser wallet for approval.',
+    'Send native tokens (ETH, MATIC, BNB, etc.) to an address. Simulates the transaction, then sends it to the signer you choose for approval.',
     z.object({
       chain: z.enum(SUPPORTED_CHAINS).describe('Blockchain network'),
       to: z.string().describe('Recipient address'),
       amount: z.string().describe('Amount in native token (e.g., "0.1" for 0.1 ETH)'),
-      data: z.string().optional().describe('Optional hex-encoded data to include with transaction')
+      data: z.string().optional().describe('Optional hex-encoded data to include with transaction'),
+      signWith: SignWithSchema
     }),
     async (args) => {
       try {
         const to = requireAddress('recipient address', args.to)
         const value = `0x${parseUnits(args.amount, 18).toString(16)}`
 
-        const { txHash, preview, signedWith } = await requestSignature(args.chain as ChainName, { to, value, data: args.data })
+        const { txHash, preview, signedWith } = await requestSignature(
+          args.chain as ChainName,
+          { to, value, data: args.data },
+          args.signWith
+        )
 
         return formatResponse({
           success: true,
@@ -138,13 +169,14 @@ export default {
 
   send_erc20_token: createTool(
     'Send ERC20 Token',
-    'Send ERC20 tokens to an address. Simulates the transfer, then opens the browser wallet for approval.',
+    'Send ERC20 tokens to an address. Simulates the transfer, then sends it to the signer you choose for approval.',
     z.object({
       chain: z.enum(SUPPORTED_CHAINS).describe('Blockchain network'),
       tokenAddress: z.string().describe('ERC20 token contract address'),
       to: z.string().describe('Recipient address'),
       amount: z.string().describe('Amount in token units (e.g., "100" for 100 USDC)'),
-      decimals: z.number().optional().default(18).describe('Token decimals (default: 18)')
+      decimals: z.number().optional().default(18).describe('Token decimals (default: 18)'),
+      signWith: SignWithSchema
     }),
     async (args) => {
       try {
@@ -156,11 +188,15 @@ export default {
           args: [to, parseUnits(args.amount, args.decimals ?? 18)]
         })
 
-        const { txHash, preview, signedWith } = await requestSignature(args.chain as ChainName, {
-          to: tokenAddress,
-          data,
-          value: '0x0'
-        })
+        const { txHash, preview, signedWith } = await requestSignature(
+          args.chain as ChainName,
+          {
+            to: tokenAddress,
+            data,
+            value: '0x0'
+          },
+          args.signWith
+        )
 
         return formatResponse({
           success: true,
@@ -179,9 +215,9 @@ export default {
     }
   ),
 
-  call_contract_write: createTool(
-    'Call Contract (Write)',
-    'Call a state-changing contract function. Simulates the call, then opens the browser wallet for approval.',
+  write_contract: createTool(
+    'Write Contract',
+    'Send a transaction that calls a state-changing contract function. Simulates it first, then asks your wallet to approve. Costs gas.',
     z.object({
       chain: z.enum(SUPPORTED_CHAINS).describe('Blockchain network'),
       contractAddress: z.string().describe('Contract address'),
@@ -190,7 +226,8 @@ export default {
         .array(z.union([z.string(), z.number(), z.boolean()]))
         .optional()
         .describe('Function arguments in order matching the ABI signature'),
-      value: z.string().optional().describe('Optional native value to send with transaction (in ETH units, e.g., "0.1")')
+      value: z.string().optional().describe('Optional native value to send with transaction (in ETH units, e.g., "0.1")'),
+      signWith: SignWithSchema
     }),
     async (args) => {
       try {
@@ -204,11 +241,15 @@ export default {
         })
         const value = args.value ? `0x${parseUnits(args.value, 18).toString(16)}` : '0x0'
 
-        const { txHash, preview, signedWith } = await requestSignature(args.chain as ChainName, {
-          to: contractAddress,
-          data,
-          value
-        })
+        const { txHash, preview, signedWith } = await requestSignature(
+          args.chain as ChainName,
+          {
+            to: contractAddress,
+            data,
+            value
+          },
+          args.signWith
+        )
 
         return formatResponse({
           success: true,
@@ -228,30 +269,41 @@ export default {
 
   sign_message: createTool(
     'Sign Message',
-    'Sign a message with the connected wallet — a paired phone if there is one, otherwise the browser wallet.',
+    'Sign a message with your wallet, on whichever signer you choose.',
     z.object({
-      message: z.string().describe('Message to sign')
+      message: z.string().describe('Message to sign'),
+      signWith: SignWithSchema
     }),
     async (args) => {
       try {
-        // Same precedence as transactions: a hosted server has no browser to fall back on.
-        const phone = getPhoneSigner()
-        const session = await phone?.session()
+        let signature: unknown
 
-        const signature = session
-          ? await phone!.request('mainnet', 'personal_sign', [toHex(args.message), session.accounts[0]])
-          : await getWalletClient().request({
-              id: generateRequestId(),
-              type: 'sign_message',
-              chain: 'any',
-              data: { message: args.message }
-            })
+        if (args.signWith === 'phone') {
+          const phone = getPhoneSigner()
+          const session = await phone?.session()
+          if (!session) {
+            throw new Error('No phone wallet is paired. Run pair_phone_wallet and scan the QR, or sign in the browser instead.')
+          }
+          signature = await phone!.request('mainnet', 'personal_sign', [toHex(args.message), session.accounts[0]])
+        } else {
+          if (process.env.MCP_HTTP_PORT) {
+            throw new Error(
+              'This server is hosted, so there is no browser wallet to open. Pair a phone with pair_phone_wallet and sign there.'
+            )
+          }
+          signature = await getWalletClient().request({
+            id: generateRequestId(),
+            type: 'sign_message',
+            chain: 'any',
+            data: { message: args.message }
+          })
+        }
 
         return formatResponse({
           success: true,
           message: args.message,
           signature,
-          signedWith: session ? 'phone' : 'browser',
+          signedWith: args.signWith,
           signatureType: 'personal_sign'
         })
       } catch (error) {
@@ -285,7 +337,7 @@ export default {
         return formatResponse({
           success: false,
           message:
-            'No WalletConnect project id configured. Get a free one at https://dashboard.reown.com and pass --walletconnect-project-id or set WALLETCONNECT_PROJECT_ID.'
+            'No WalletConnect project id configured. Get a free one at https://dashboard.walletconnect.com and pass --walletconnect-project-id or set WALLETCONNECT_PROJECT_ID.'
         })
       }
 

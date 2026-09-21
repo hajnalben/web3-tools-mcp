@@ -21,9 +21,9 @@ const ContractCallSchema = z.object({
 })
 
 export default {
-  call_contract_function: createTool(
-    'Call Contract Functions',
-    'Execute multiple view/pure contract functions efficiently. BATCH OPTIMIZED - use for reading contract state, token metadata.',
+  read_contract: createTool(
+    'Read Contract',
+    'Read state from contracts by calling view/pure functions. Nothing is sent on-chain and no wallet is involved. BATCH OPTIMIZED - use for reading contract state, token metadata.',
     z.object({
       calls: z
         .array(ContractCallSchema)

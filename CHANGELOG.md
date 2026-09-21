@@ -28,6 +28,15 @@ sign it.
 
 ### Changed
 
+- **Signing tools now require `signWith`.** `send_native_token`, `send_erc20_token`,
+  `write_contract` and `sign_message` take `phone` or `browser`, with no default, so the
+  agent has to ask rather than silently preferring a paired phone. Asking for a signer that
+  is not available now fails with a message saying how to fix it, instead of falling back
+  to the other one.
+- **Renamed two tools.** `call_contract_function` is now `read_contract`, and
+  `call_contract_write` is now `write_contract` — the old pair gave no hint which one
+  spent gas. The names now match viem's, and a saved prompt naming the old ones will need
+  updating.
 - Every supported chain now lives in one table ([mcp/src/chains.ts](mcp/src/chains.ts)). Adding a
   chain is a single entry; the tool schemas, RPC selection, explorer links, Hypersync
   routing and `--help` all derive from it.
