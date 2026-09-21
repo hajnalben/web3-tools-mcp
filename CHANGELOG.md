@@ -36,6 +36,10 @@ sign it.
 
 ### Fixed
 
+- `get_logs` over Hypersync was broken three ways: indexed addresses were sent as 20-byte
+  topics and rejected outright, an unfiltered topic position was dropped rather than left
+  empty so later filters matched the wrong parameter, and matched logs came back with no
+  decoded arguments at all. The fallback now works without an RPC provider key.
 - Explorer links are omitted on `localhost` instead of pointing at Etherscan.
 - The public RPC fallback for Unichain pointed at Sepolia, not mainnet.
 - A hosted server no longer advertises a browser relay it cannot reach.
