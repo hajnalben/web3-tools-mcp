@@ -38,7 +38,7 @@ function explorerTxUrl(chain: ChainName, txHash: unknown): string | undefined {
 const SignWithSchema = z
   .enum(['phone', 'browser'])
   .describe(
-    'Where to approve this: "phone" for a paired WalletConnect wallet, "browser" for the wallet page on this machine. Ask the user which they want — do not assume, even when only one is connected. wallet_status lists what is available.'
+    'Where to approve this: "phone" for a paired WalletConnect wallet, "browser" for the wallet signing page. Ask the user which they want — do not assume, even when only one is connected. Call wallet_status first: it says which signers are ready, and when no signing page is open it returns walletUrl. In that case give the user that link, ask them to open it and connect a wallet, and only call this once they confirm — a signing request cannot reach a page nobody has open.'
   )
 
 type SignWith = z.infer<typeof SignWithSchema>
@@ -438,7 +438,7 @@ export default {
         hosted: wallet.isRemote,
         message: wallet.isConnected()
           ? 'Wallet is connected and ready to sign transactions'
-          : `No wallet connected. Open ${wallet.getUrl()} and connect your wallet.`
+          : `No signing page is open. Give the user this link, ask them to open it and connect a wallet, then retry: ${wallet.getUrl()}`
       })
     }
   )
