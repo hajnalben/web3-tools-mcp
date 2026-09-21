@@ -254,7 +254,9 @@ export default {
 
   pair_phone_wallet: createTool(
     'Pair Phone Wallet',
-    'Pair a phone wallet over WalletConnect, so transactions are signed on the phone instead of in a browser. Returns a QR code to scan. Requires a WalletConnect project id.',
+    'Pair a phone wallet over WalletConnect, so transactions are signed on the phone instead of in a browser. ' +
+      'Returns a QR to scan plus links that open a wallet directly — show those to the user as clickable links. ' +
+      'Requires a WalletConnect project id.',
     z.object({
       chains: z
         .array(z.enum(SUPPORTED_CHAINS))
@@ -306,6 +308,11 @@ export default {
           // Approving grants an agent standing permission to request signatures, so the
           // wallet dialog names the agent rather than implying a website is connecting.
           shownInWallet: args.agent ? `${args.agent} via web3-tools-mcp` : 'web3-tools-mcp (AI agent)',
+          howToPresent:
+            'Render each openOnThisDevice entry as a clickable link labelled with the wallet name, and show the ' +
+            'uri as copyable text. On a phone that tap is the whole flow. Show the QR only when the user is on a ' +
+            'different device from their wallet — it is unreadable inline on the phone that holds the wallet. ' +
+            'If a link does nothing, some clients drop custom schemes like rabby://, so tell them to paste the uri.',
           message:
             'On another device: scan the QR with your wallet. On this device: tap one of the openOnThisDevice ' +
             'links, or copy the uri and paste it into your wallet under WalletConnect — every wallet supports ' +
