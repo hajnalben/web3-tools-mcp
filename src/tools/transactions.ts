@@ -358,6 +358,20 @@ export default {
         })
       }
 
+      // Served over HTTP means there is no browser on this machine, so the relay must not
+      // be started at all — it would bind a port nobody can reach and advertise a localhost
+      // URL that means nothing to whoever is asking.
+      if (process.env.MCP_HTTP_PORT) {
+        return formatResponse({
+          connected: false,
+          signer: 'none',
+          hosted: true,
+          message: phone
+            ? 'No phone wallet paired. Run pair_phone_wallet — WalletConnect is the only way a hosted server can sign.'
+            : 'This server is hosted and has no WalletConnect project id, so it cannot sign anything. Set WALLETCONNECT_PROJECT_ID.'
+        })
+      }
+
       const wallet = getWalletClient()
       try {
         await wallet.connect()
