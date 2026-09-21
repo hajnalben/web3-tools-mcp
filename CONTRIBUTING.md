@@ -5,7 +5,8 @@
 ```bash
 git clone https://github.com/hajnalben/web3-tools-mcp.git
 cd web3-tools-mcp
-npm install          # installs both workspaces and builds them in dependency order
+npm install          # installs both workspaces
+npm run build        # builds them in dependency order
 cp .env.example .env # optional: fill in what you have, everything is optional
 ```
 

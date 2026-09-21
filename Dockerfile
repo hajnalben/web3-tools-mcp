@@ -9,10 +9,10 @@ COPY mcp/package.json ./mcp/
 COPY wallet-relay/package.json ./wallet-relay/
 COPY mcp ./mcp
 COPY wallet-relay ./wallet-relay
-# Install without scripts, then build in dependency order. Letting `npm ci` run the
-# workspace prepare scripts raced its own linking: mcp would compile before
-# node_modules/web3-wallet-relay existed and fail to resolve the relay's types.
-RUN npm ci --ignore-scripts && npm run build
+# Build explicitly, after install, so the workspaces are already linked. mcp cannot build
+# from a prepare script: npm runs those before node_modules/web3-wallet-relay exists, and
+# tsc then cannot resolve the relay's types.
+RUN npm ci && npm run build
 
 FROM node:22-slim AS runtime
 

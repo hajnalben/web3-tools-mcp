@@ -28,8 +28,7 @@
     "test:ui": "vitest --ui",
     "sync:registry": "node scripts/build-erc7730-index.mjs /tmp/erc7730/registry src/erc7730-index.json.gz",
     "start": "node dist/index.js",
-    "prepare": "npm run build",
-    "prepack": "cp ../README.md ../CHANGELOG.md ../LICENSE ."
+    "prepack": "npm run build && cp ../README.md ../CHANGELOG.md ../LICENSE ."
   },
   "keywords": [
     "mcp",
