@@ -2,12 +2,12 @@ import {
   type AbiEvent,
   type AbiFunction,
   type AbiParameter,
+  encodeFunctionData,
   keccak256,
   parseAbiItem,
   toBytes,
   toEventSignature,
-  toFunctionSignature,
-  encodeFunctionData
+  toFunctionSignature
 } from 'viem'
 import { z } from 'zod'
 import type { AbiError } from '../types.js'
@@ -24,9 +24,7 @@ const EventAbiSchema = z.object({
 })
 
 const ErrorAbiSchema = z.object({
-  errorAbi: z
-    .string()
-    .describe('Error ABI definition (e.g., "error InsufficientBalance(uint256 available, uint256 required)")')
+  errorAbi: z.string().describe('Error ABI definition (e.g., "error InsufficientBalance(uint256 available, uint256 required)")')
 })
 
 export default {
@@ -34,33 +32,27 @@ export default {
     'Calculate Function Signatures',
     'Generate 4-byte function selectors from ABI definitions. BATCH OPTIMIZED - use for transaction decoding.',
     z.object({
-      items: z
-        .array(FunctionAbiSchema)
-        .describe('Array of function ABI definitions. Batch multiple functions for efficiency.')
+      items: z.array(FunctionAbiSchema).describe('Array of function ABI definitions. Batch multiple functions for efficiency.')
     }),
     async (args) => {
-      try {
-        const results = args.items.map((item) => {
-          const abiItem = parseAbiItem(item.functionAbi) as AbiFunction
-          const signature = toFunctionSignature(abiItem)
-          const hash = keccak256(toBytes(signature))
-          const selector = hash.slice(0, 10)
+      const results = args.items.map((item) => {
+        const abiItem = parseAbiItem(item.functionAbi) as AbiFunction
+        const signature = toFunctionSignature(abiItem)
+        const hash = keccak256(toBytes(signature))
+        const selector = hash.slice(0, 10)
 
-          return {
-            signature: selector,
-            fullSignature: signature,
-            functionName: abiItem.name,
-            inputs: abiItem.inputs,
-            outputs: abiItem.outputs || [],
-            stateMutability: abiItem.stateMutability,
-            originalAbi: item.functionAbi
-          }
-        })
+        return {
+          signature: selector,
+          fullSignature: signature,
+          functionName: abiItem.name,
+          inputs: abiItem.inputs,
+          outputs: abiItem.outputs || [],
+          stateMutability: abiItem.stateMutability,
+          originalAbi: item.functionAbi
+        }
+      })
 
-        return formatResponse(results)
-      } catch (error) {
-        throw new Error(`Failed to parse function ABI: ${error}`)
-      }
+      return formatResponse(results)
     }
   ),
 
@@ -71,27 +63,23 @@ export default {
       items: z.array(EventAbiSchema).describe('Array of event ABI definitions. Batch multiple events for optimal performance.')
     }),
     async (args) => {
-      try {
-        const results = args.items.map((item) => {
-          const abiItem = parseAbiItem(item.eventAbi) as AbiEvent
-          const signature = toEventSignature(abiItem)
-          const hash = keccak256(toBytes(signature))
+      const results = args.items.map((item) => {
+        const abiItem = parseAbiItem(item.eventAbi) as AbiEvent
+        const signature = toEventSignature(abiItem)
+        const hash = keccak256(toBytes(signature))
 
-          return {
-            signature: hash,
-            topic0: hash,
-            fullSignature: signature,
-            eventName: abiItem.name,
-            inputs: abiItem.inputs,
-            anonymous: abiItem.anonymous || false,
-            originalAbi: item.eventAbi
-          }
-        })
+        return {
+          signature: hash,
+          topic0: hash,
+          fullSignature: signature,
+          eventName: abiItem.name,
+          inputs: abiItem.inputs,
+          anonymous: abiItem.anonymous || false,
+          originalAbi: item.eventAbi
+        }
+      })
 
-        return formatResponse(results)
-      } catch (error) {
-        throw new Error(`Failed to parse event ABI: ${error}`)
-      }
+      return formatResponse(results)
     }
   ),
 
@@ -102,26 +90,22 @@ export default {
       items: z.array(ErrorAbiSchema).describe('Array of error ABI definitions. Batch related errors for efficiency.')
     }),
     async (args) => {
-      try {
-        const results = args.items.map((item) => {
-          const abiItem = parseAbiItem(item.errorAbi) as AbiError
-          const signature = `${abiItem.name}(${abiItem.inputs.map((input: AbiParameter) => input.type).join(',')})`
-          const hash = keccak256(toBytes(signature))
-          const selector = hash.slice(0, 10)
+      const results = args.items.map((item) => {
+        const abiItem = parseAbiItem(item.errorAbi) as AbiError
+        const signature = `${abiItem.name}(${abiItem.inputs.map((input: AbiParameter) => input.type).join(',')})`
+        const hash = keccak256(toBytes(signature))
+        const selector = hash.slice(0, 10)
 
-          return {
-            signature: selector,
-            fullSignature: signature,
-            errorName: abiItem.name,
-            inputs: abiItem.inputs,
-            originalAbi: item.errorAbi
-          }
-        })
+        return {
+          signature: selector,
+          fullSignature: signature,
+          errorName: abiItem.name,
+          inputs: abiItem.inputs,
+          originalAbi: item.errorAbi
+        }
+      })
 
-        return formatResponse(results)
-      } catch (error) {
-        throw new Error(`Failed to parse error ABI: ${error}`)
-      }
+      return formatResponse(results)
     }
   ),
 
@@ -130,30 +114,28 @@ export default {
     'Encode a function call with parameters into transaction data. Use this before calling call_contract_write.',
     z.object({
       functionAbi: z.string().describe('Function ABI definition (e.g., "function transfer(address to, uint256 amount)")'),
-      args: z.array(z.union([z.string(), z.number(), z.boolean()])).describe('Function arguments in order matching the ABI signature. Automatically type-converted.')
+      args: z
+        .array(z.union([z.string(), z.number(), z.boolean()]))
+        .describe('Function arguments in order matching the ABI signature. Automatically type-converted.')
     }),
     async (args) => {
-      try {
-        const abiItem = parseAbiItem(args.functionAbi) as AbiFunction
+      const abiItem = parseAbiItem(args.functionAbi) as AbiFunction
 
-        // Encode the function data
-        const data = encodeFunctionData({
-          abi: [abiItem],
-          functionName: abiItem.name,
-          args: args.args as readonly unknown[]
-        })
+      // Encode the function data
+      const data = encodeFunctionData({
+        abi: [abiItem],
+        functionName: abiItem.name,
+        args: args.args as readonly unknown[]
+      })
 
-        return formatResponse({
-          data,
-          functionName: abiItem.name,
-          functionSignature: toFunctionSignature(abiItem),
-          selector: data.slice(0, 10),
-          encodedArgs: data.slice(10),
-          message: 'Function data encoded successfully. Use this data with call_contract_write tool.'
-        })
-      } catch (error) {
-        throw new Error(`Failed to encode function data: ${error}`)
-      }
+      return formatResponse({
+        data,
+        functionName: abiItem.name,
+        functionSignature: toFunctionSignature(abiItem),
+        selector: data.slice(0, 10),
+        encodedArgs: data.slice(10),
+        message: 'Function data encoded successfully. Use this data with call_contract_write tool.'
+      })
     }
   )
 }
