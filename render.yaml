@@ -29,14 +29,25 @@ services:
     # Render assigns PORT; MCP_HTTP_PORT is what switches stdio off.
     startCommand: MCP_HTTP_PORT=$PORT node dist/index.js
     healthCheckPath: /health
+    # Render's filesystem is ephemeral on every plan, so the WalletConnect pairing needs a
+    # disk to survive a redeploy — otherwise you rescan the QR each time. A disk costs a few
+    # seconds of downtime per deploy, which is nothing for a personal server. The free Key
+    # Value instance is not an alternative: it does not persist either.
+    disk:
+      name: data
+      mountPath: /var/lib/web3-tools-mcp
+      sizeGB: 1
     envVars:
+      # storePath() honours this, so the pairing lands on the disk above.
+      - key: XDG_CONFIG_HOME
+        value: /var/lib/web3-tools-mcp
       # Required: anyone who reaches /mcp could ask your phone to sign something.
       - key: MCP_TOKEN
         generateValue: true
       - key: WALLETCONNECT_PROJECT_ID
         sync: false
-      # Optional: only needed where the filesystem is ephemeral (free tiers, containers
-      # without a volume). Without these the pairing is kept in a local file.
+      # Alternative to the disk, for hosts that have no volumes (or a free plan here).
+      # Leave blank to keep the pairing on disk.
       - key: UPSTASH_REDIS_REST_URL
         sync: false
       - key: UPSTASH_REDIS_REST_TOKEN

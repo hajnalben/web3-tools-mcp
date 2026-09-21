@@ -184,13 +184,19 @@ claude mcp add --transport http web3-tools https://your-host/mcp \
 `/mcp` while your phone is paired can push signing prompts at it. You would still approve
 each one, but that is a phishing surface, not a feature.
 
-Keep the instance awake if you can. Sleeping drops the WalletConnect socket your phone
-pairing depends on, so the first transaction after an idle period waits for the host to wake
-(about a minute on Render's free tier) before it reaches your phone. Where the filesystem is
-also ephemeral — free tiers, containers without a volume — set `UPSTASH_REDIS_REST_URL` and
-`UPSTASH_REDIS_REST_TOKEN` ([Upstash](https://upstash.com) has a free plan) so the pairing
-lives in Redis rather than a file that disappears, otherwise you rescan the QR after every
-sleep.
+Two things decide whether the pairing survives:
+
+- **Keep the instance awake.** Sleeping drops the WalletConnect socket your phone pairing
+  depends on, so the first transaction after an idle period waits for the host to wake
+  (about a minute on a free tier) before it reaches your phone.
+- **Give the session somewhere durable to live.** Most hosts have an ephemeral filesystem,
+  so a plain file is lost on every redeploy and you rescan the QR. Either attach a volume
+  and point `XDG_CONFIG_HOME` at it (what `render.yaml` does), or set
+  `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN`
+  ([Upstash](https://upstash.com) has a free plan) and the session moves to Redis.
+
+Render's own free Key Value instance is not an option for this: it has no persistence, so
+the pairing would disappear on its next maintenance.
 
 A hosted server skips the wallet relay entirely — there is no browser on the host to open —
 so WalletConnect is its only way to sign.
