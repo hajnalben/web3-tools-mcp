@@ -307,6 +307,36 @@ export default {
     }
   ),
 
+  disconnect_phone_wallet: createTool(
+    'Disconnect Phone Wallet',
+    'End every WalletConnect session and drop the pairings underneath them. Use before pairing a different wallet, or to clear out attempts that were never approved.',
+    z.object({}),
+    async () => {
+      const phone = getPhoneSigner()
+      if (!phone) {
+        return formatResponse({ success: false, message: 'No WalletConnect project id configured — nothing to disconnect.' })
+      }
+
+      try {
+        const before = await phone.sessions()
+        const removed = await phone.disconnectAll()
+
+        return formatResponse({
+          success: true,
+          disconnectedSessions: removed.sessions,
+          droppedPairings: removed.pairings,
+          wallets: before.map((session) => `${session.peer ?? 'unknown wallet'} (${session.accounts[0]})`),
+          message:
+            removed.sessions || removed.pairings
+              ? 'Disconnected. Transactions fall back to the browser wallet until a phone is paired again.'
+              : 'Nothing was connected.'
+        })
+      } catch (error) {
+        return failure(error, 'Could not disconnect the phone wallet')
+      }
+    }
+  ),
+
   wallet_status: createTool(
     'Wallet Status',
     'Check if a wallet is connected to the browser interface',

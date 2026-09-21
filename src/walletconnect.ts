@@ -139,10 +139,45 @@ export class PhoneSigner {
     })
   }
 
+  /** Every live session, not just the one that would be used for signing. */
+  async sessions(): Promise<Session[]> {
+    await this.start()
+    return (this.client?.session.getAll() ?? []).map((session) => ({
+      topic: session.topic,
+      accounts: [...new Set((session.namespaces.eip155?.accounts ?? []).map((a) => a.split(':')[2] as string))],
+      chains: [...new Set((session.namespaces.eip155?.accounts ?? []).map((a) => Number(a.split(':')[1])))],
+      peer: session.peer?.metadata?.name
+    }))
+  }
+
+  /**
+   * Disconnect everything: sessions, and the pairings underneath them. Each pairing
+   * attempt leaves one behind whether or not a wallet ever approved it, so they
+   * accumulate quietly in the store.
+   */
+  async disconnectAll(): Promise<{ sessions: number; pairings: number }> {
+    await this.start()
+    if (!this.client) return { sessions: 0, pairings: 0 }
+
+    const sessions = this.client.session.getAll()
+    for (const session of sessions) {
+      await this.client
+        .disconnect({ topic: session.topic, reason: { code: 6000, message: 'User disconnected' } })
+        .catch((error) => console.error('[WalletConnect] Could not disconnect a session:', error.message))
+    }
+
+    const pairings = this.client.core.pairing.getPairings()
+    for (const pairing of pairings) {
+      await this.client.core.pairing
+        .disconnect({ topic: pairing.topic })
+        .catch((error) => console.error('[WalletConnect] Could not drop a pairing:', error.message))
+    }
+
+    return { sessions: sessions.length, pairings: pairings.length }
+  }
+
   async unpair(): Promise<void> {
-    const session = await this.session()
-    if (!session || !this.client) return
-    await this.client.disconnect({ topic: session.topic, reason: { code: 6000, message: 'User disconnected' } })
+    await this.disconnectAll()
   }
 }
 
