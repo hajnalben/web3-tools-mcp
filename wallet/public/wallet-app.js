@@ -162,6 +162,62 @@ function parseError(error) {
 }
 
 // UI Functions
+const PAGE_TITLE = document.title;
+
+/**
+ * Pull attention to a pending request. The tab title always works; the desktop
+ * notification only if the user granted permission, and clicking it focuses this tab.
+ * The MCP server also raises the browser window, which covers the case where neither helps.
+ */
+function announceRequest(request) {
+    document.title = '\u26a0 Transaction request';
+
+    if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+
+    const decoded = request.preview?.decoded;
+    const body = decoded
+        ? `${decoded.functionName} on ${request.chain}`
+        : `${request.type.replace(/_/g, ' ')} on ${request.chain}`;
+
+    try {
+        const notification = new Notification('Transaction request', { body, tag: 'web3-tools-tx' });
+        notification.onclick = () => {
+            window.focus();
+            notification.close();
+        };
+    } catch (error) {
+        console.error('Notification failed:', error);
+    }
+}
+
+/**
+ * The MCP server no longer raises the browser window (that could only be done by opening a
+ * URL, which spawns a stray tab), so a desktop notification is how a backgrounded tab gets
+ * noticed. Offered as a button because browsers only grant permission on a real click.
+ */
+function enableNotifications() {
+    if (typeof Notification === 'undefined') return;
+
+    Notification.requestPermission()
+        .then((permission) => {
+            updateNotifyButton();
+            if (permission === 'granted') showStatus('Notifications on', 'You will be alerted about transaction requests.', 'success');
+            else showStatus('Notifications blocked', 'Requests will still flash in the tab title.', 'warning');
+        })
+        .catch(() => {});
+}
+
+function updateNotifyButton() {
+    const button = document.getElementById('notifyBtn');
+    if (!button) return;
+    const askable = typeof Notification !== 'undefined' && Notification.permission === 'default';
+    button.classList.toggle('hidden', !askable);
+}
+
+function clearRequestNotice() {
+    document.title = PAGE_TITLE;
+}
+
 function showStatus(title, message, type = 'info') {
     const statusEl = document.getElementById('statusMessage');
     statusEl.className = `status ${type}`;
@@ -265,12 +321,7 @@ function log(message, type = 'info') {
 
 function toggleDarkMode() {
     document.body.classList.toggle('dark-mode');
-    const isDark = document.body.classList.contains('dark-mode');
-    localStorage.setItem('darkMode', isDark ? 'true' : 'false');
-
-    // Update button icon
-    const button = document.querySelector('.dark-mode-toggle');
-    button.textContent = isDark ? '☀️' : '🌙';
+    localStorage.setItem('darkMode', document.body.classList.contains('dark-mode') ? 'true' : 'false');
 }
 
 // Load dark mode preference on startup
@@ -287,87 +338,126 @@ if (shouldUseDarkMode) {
     }
 }
 
-// Update button icon to match current state
-const button = document.querySelector('.dark-mode-toggle');
-if (button) {
-    button.textContent = shouldUseDarkMode ? '☀️' : '🌙';
+function resolveProvider() {
+    // Prioritize Rabby over MetaMask
+    if (window.rabby) return { provider: window.rabby, name: 'Rabby' };
+    if (!window.ethereum) return null;
+    if (window.ethereum.isRabby) return { provider: window.ethereum, name: 'Rabby' };
+    if (window.ethereum.isMetaMask) return { provider: window.ethereum, name: 'MetaMask' };
+    return { provider: window.ethereum, name: 'Web3 Wallet' };
+}
+
+// Extensions sometimes inject after `load` fires, so give them a moment before deciding
+// that no wallet is installed.
+function waitForProvider(timeout = 2000) {
+    const found = resolveProvider();
+    if (found) return Promise.resolve(found);
+
+    return new Promise((resolve) => {
+        const poll = setInterval(() => {
+            const provider = resolveProvider();
+            if (!provider) return;
+            clearInterval(poll);
+            clearTimeout(giveUp);
+            resolve(provider);
+        }, 100);
+
+        const giveUp = setTimeout(() => {
+            clearInterval(poll);
+            resolve(null);
+        }, timeout);
+    });
+}
+
+async function establishConnection({ provider, name }, accounts) {
+    state.account = accounts[0];
+    state.provider = provider;
+
+    if (!window.ethereum) {
+        window.ethereum = provider;
+    }
+
+    log(`Connected to ${name}: ${state.account}`, 'success');
+
+    // Remember the connection so the next page load can restore it without a prompt.
+    localStorage.setItem('walletConnected', 'true');
+    localStorage.setItem('walletAddress', state.account);
+
+    document.getElementById('connectBtn').classList.add('hidden');
+
+    await updateWalletInfo();
+    connectWebSocket();
+    txHistory.render();
+
+    if (state.listenersBound) return;
+    state.listenersBound = true;
+
+    provider.on('accountsChanged', (accounts) => {
+        if (accounts.length === 0) {
+            log('Wallet disconnected', 'error');
+            localStorage.removeItem('walletConnected');
+            localStorage.removeItem('walletAddress');
+            location.reload();
+        } else {
+            state.account = accounts[0];
+            localStorage.setItem('walletAddress', state.account);
+            updateWalletInfo();
+        }
+    });
+
+    provider.on('chainChanged', () => {
+        log('Chain changed, reloading...', 'info');
+        location.reload();
+    });
 }
 
 async function connectWallet() {
+    const found = await waitForProvider();
+    if (!found) {
+        showStatus('No Wallet Found', 'Please install Rabby or MetaMask wallet.', 'error');
+        return;
+    }
+
     try {
-        // Prioritize Rabby over MetaMask
-        let selectedProvider = null;
-        let walletName = 'Web3 Wallet';
+        log(`Requesting ${found.name} connection...`, 'info');
+        const accounts = await found.provider.request({ method: 'eth_requestAccounts' });
+        await establishConnection(found, accounts);
+        showStatus('Connected', 'Wallet connected successfully', 'success');
 
-        if (window.rabby) {
-            selectedProvider = window.rabby;
-            walletName = 'Rabby';
-        } else if (window.ethereum) {
-            if (window.ethereum.isRabby) {
-                selectedProvider = window.ethereum;
-                walletName = 'Rabby';
-            } else if (window.ethereum.isMetaMask) {
-                selectedProvider = window.ethereum;
-                walletName = 'MetaMask';
-            } else {
-                selectedProvider = window.ethereum;
-            }
-        } else {
-            showStatus('No Wallet Found', 'Please install Rabby or MetaMask wallet.', 'error');
-            return;
+        // Asked here because this is a real user gesture; browsers reject it otherwise.
+        if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
+            Notification.requestPermission().then(updateNotifyButton).catch(() => {});
         }
-
-        log(`Requesting ${walletName} connection...`, 'info');
-        const accounts = await selectedProvider.request({
-            method: 'eth_requestAccounts'
-        });
-
-        state.account = accounts[0];
-        state.provider = selectedProvider;
-
-        if (!window.ethereum) {
-            window.ethereum = selectedProvider;
-        }
-
-        log(`Connected to ${walletName}: ${state.account}`, 'success');
-
-        // Save connection state
-        localStorage.setItem('walletConnected', 'true');
-        localStorage.setItem('walletAddress', state.account);
-
-        // Update UI - hide connect button
-        document.getElementById('connectBtn').classList.add('hidden');
-
-        await updateWalletInfo();
-        connectWebSocket();
-        txHistory.render();
-
-        // Listen for account changes
-        state.provider.on('accountsChanged', (accounts) => {
-            if (accounts.length === 0) {
-                log('Wallet disconnected', 'error');
-                localStorage.removeItem('walletConnected');
-                localStorage.removeItem('walletAddress');
-                location.reload();
-            } else {
-                state.account = accounts[0];
-                localStorage.setItem('walletAddress', state.account);
-                updateWalletInfo();
-            }
-        });
-
-        // Listen for chain changes
-        state.provider.on('chainChanged', () => {
-            log('Chain changed, reloading...', 'info');
-            location.reload();
-        });
-
-        showStatus('Connected', `Wallet connected successfully`, 'success');
-
     } catch (error) {
         const err = parseError(error);
         log(`Connection failed: ${err.message}`, 'error');
         showStatus(err.title, err.message, err.type);
+    }
+}
+
+/**
+ * Restore a previous connection without prompting. eth_accounts only returns accounts the
+ * wallet has already authorised for this origin, so this is silent when the wallet is
+ * unlocked and says nothing when it isn't.
+ */
+async function restoreConnection() {
+    const found = await waitForProvider();
+    if (!found) return;
+
+    try {
+        const accounts = await found.provider.request({ method: 'eth_accounts' });
+
+        if (accounts.length > 0) {
+            log('Restoring saved wallet connection...', 'info');
+            await establishConnection(found, accounts);
+            return;
+        }
+
+        if (localStorage.getItem('walletConnected') === 'true') {
+            showStatus('Wallet locked', 'Unlock your wallet, or press Connect wallet.', 'warning');
+        }
+    } catch (error) {
+        log(`Could not restore connection: ${error.message}`, 'error');
     }
 }
 
@@ -393,6 +483,7 @@ async function updateWalletInfo() {
         document.getElementById('walletInfo').classList.remove('hidden');
 
         updateChainBadge(true, state.chainName);
+        reportAccount();
     } catch (error) {
         log(`Failed to update wallet info: ${error.message}`, 'error');
     }
@@ -449,59 +540,185 @@ async function switchToChain(chainName) {
 }
 
 // Transaction Preview
+function esc(value) {
+    return String(value ?? '').replace(/[&<>"']/g, c => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    })[c]);
+}
+
+function param(name, value, extra = '') {
+    return paramHtml(name, esc(value), extra);
+}
+
+/** Same row, but the value is already-built HTML (a link). Callers must escape it. */
+function paramHtml(name, valueHtml, extra = '') {
+    return `<div class="tx-param">
+        <span class="tx-param-name">${esc(name)}:</span>
+        <span class="tx-param-value">${valueHtml}</span>${extra}
+    </div>`;
+}
+
+function shortAddress(address) {
+    return `${address.substring(0, 6)}…${address.substring(address.length - 4)}`;
+}
+
+/**
+ * Address as an explorer link, prefixed with its token symbol or contract name if known.
+ * The address stays in full: a truncated one can be forged with a vanity address, and this
+ * is the last screen before signing. `short` is for secondary rows where space is tight.
+ */
+function addressLink(address, label, explorer, short = false) {
+    const shown = esc(short ? shortAddress(address) : address);
+    const text = label ? `<span class="tx-label">${esc(label)}</span> ${shown}` : shown;
+    if (!explorer) return text;
+    return `<a class="tx-link" href="${esc(explorer)}/address/${esc(address)}" target="_blank" rel="noreferrer" title="${esc(address)}">${text}</a>`;
+}
+
+function renderAssetChanges(changes, explorer) {
+    const account = (state.account || '').toLowerCase();
+
+    return changes.map(change => {
+        const amount = change.humanAmount ?? change.amount;
+        const outgoing = change.from.toLowerCase() === account;
+        const incoming = change.to.toLowerCase() === account;
+        const direction = outgoing ? 'out' : incoming ? 'in' : 'other';
+        const sign = outgoing ? '−' : incoming ? '+' : '↔';
+        const other = outgoing ? change.to : change.from;
+
+        const token = explorer
+            ? `<a class="tx-link" href="${esc(explorer)}/token/${esc(change.token)}" target="_blank" rel="noreferrer" title="${esc(change.token)}">${esc(change.symbol ?? shortAddress(change.token))}</a>`
+            : esc(change.symbol ?? shortAddress(change.token));
+
+        return `<div class="tx-asset tx-asset-${direction}">
+            <span class="tx-asset-amount">${sign} ${esc(amount)} ${token}</span>
+            <span class="tx-asset-party">${outgoing ? 'to' : 'from'} ${addressLink(other, undefined, explorer, true)}</span>
+        </div>`;
+    }).join('');
+}
+
+function renderSimulation(simulation, explorer) {
+    if (!simulation) {
+        return `<div class="tx-sim tx-sim-unknown">Not simulated — approve only if you know what this does.</div>`;
+    }
+
+    if (!simulation.success) {
+        return `<div class="tx-sim tx-sim-fail">
+            <strong>Simulation reverted</strong>
+            <div>${esc(simulation.error || 'execution reverted')}</div>
+            <div>This transaction will very likely fail and still cost gas.</div>
+        </div>`;
+    }
+
+    const changes = simulation.assetChanges?.length
+        ? `<div class="tx-assets">${renderAssetChanges(simulation.assetChanges, explorer)}</div>`
+        : `<div class="tx-sim-note">No token transfers detected.</div>`;
+
+    return `<div class="tx-sim tx-sim-ok">
+        <strong>Simulation succeeded</strong>${simulation.gasEstimate ? ` · ${esc(simulation.gasEstimate)} gas` : ''}
+        ${changes}
+    </div>`;
+}
+
 function renderTransactionPreview(request) {
     const details = document.getElementById('txDetails');
+    const approveBtn = document.getElementById('approveBtn');
     const data = request.data;
+    const preview = request.preview;
 
     let html = '';
 
     if (request.type === 'send_transaction') {
-        html += `<div class="tx-param">
-            <span class="tx-param-name">To:</span>
-            <span class="tx-param-value">${data.to}</span>
-        </div>`;
+        const decoded = preview?.decoded;
+
+        if (decoded) {
+            html += `<div class="tx-intent">${esc(decoded.functionName)}
+                <span class="tx-source tx-source-${esc(decoded.source)}">${decoded.source === 'verified' ? 'verified ABI' : 'ABI guessed from bytecode'}</span>
+            </div>`;
+        }
+
+        const explorer = preview?.explorer;
+
+        html += paramHtml('Contract', addressLink(data.to, preview?.toLabel, explorer));
+        if (decoded?.proxy) html += paramHtml('Implementation', addressLink(decoded.proxy, undefined, explorer));
 
         if (data.value && data.value !== '0x0') {
-            const ethValue = parseInt(data.value, 16) / 1e18;
-            html += `<div class="tx-param">
-                <span class="tx-param-name">Value:</span>
-                <span class="tx-param-value">${ethValue.toFixed(6)} ETH</span>
-            </div>`;
+            html += param('Value', `${preview?.valueFormatted ?? parseInt(data.value, 16) / 1e18} ${state.chainName || 'native'}`);
         }
 
-        if (data.data && data.data !== '0x') {
-            html += `<div class="tx-param">
-                <span class="tx-param-name">Data:</span>
-                <span class="tx-param-value">${data.data.substring(0, 66)}${data.data.length > 66 ? '...' : ''}</span>
-            </div>`;
+        if (decoded) {
+            for (const field of decoded.fields) {
+                const warning = field.warning ? `<span class="tx-warning">⚠ ${esc(field.warning)}</span>` : '';
+                html += field.address
+                    ? paramHtml(field.name, addressLink(field.address, field.label, explorer), warning)
+                    : param(field.name, field.value, warning);
+            }
+        } else if (data.data && data.data !== '0x') {
+            html += param('Data', `${data.data.substring(0, 66)}${data.data.length > 66 ? '…' : ''}`);
         }
+
+        html += renderSimulation(preview?.simulation, explorer);
+
+        const failed = preview?.simulation && !preview.simulation.success;
+        approveBtn.textContent = failed ? '⚠ Approve anyway' : '✓ Approve & Sign';
+        approveBtn.classList.toggle('btn-danger', Boolean(failed));
     } else if (request.type === 'sign_message') {
-        html += `<div class="tx-param">
-            <span class="tx-param-name">Message:</span>
-            <span class="tx-param-value">${data.message}</span>
-        </div>`;
+        html += param('Message', data.message);
+        approveBtn.textContent = '✓ Approve & Sign';
+        approveBtn.classList.remove('btn-danger');
     }
 
     details.innerHTML = html;
 }
 
 // WebSocket Connection
-function connectWebSocket() {
-    // Close existing connection if any
+// The pairing token arrives in the URL fragment and stays there on purpose: the MCP server
+// raises this tab by asking the OS to open its URL, and the browser only matches a tab by
+// its exact URL. Stripping the fragment made every such request open a second, unpaired tab
+// (sessionStorage is per-tab, so the new one has no token to fall back on).
+function getRelayToken() {
+    const fromHash = new URLSearchParams(location.hash.slice(1)).get('t');
+    if (fromHash) {
+        sessionStorage.setItem('relayToken', fromHash);
+        return fromHash;
+    }
+    return sessionStorage.getItem('relayToken');
+}
+
+function reportAccount() {
     if (state.ws && state.ws.readyState === WebSocket.OPEN) {
-        state.ws.close();
+        state.ws.send(JSON.stringify({ type: 'status', address: state.account, url: location.href }));
+    }
+}
+
+function connectWebSocket() {
+    const token = getRelayToken();
+    if (!token) {
+        log('No pairing token in URL', 'error');
+        showStatus('Not paired', 'Open the wallet link printed by the MCP server — it carries the pairing token.', 'error');
+        return;
     }
 
-    state.ws = new WebSocket('ws://localhost:3456');
+    // Already attached (or attaching) — reconnecting would only churn the relay's view.
+    if (state.ws && (state.ws.readyState === WebSocket.OPEN || state.ws.readyState === WebSocket.CONNECTING)) {
+        reportAccount();
+        return;
+    }
+
+    const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    state.ws = new WebSocket(`${protocol}//${location.host}`);
 
     state.ws.onopen = () => {
+        state.ws.send(JSON.stringify({ token, role: 'signer', address: state.account, url: location.href }));
         log('WebSocket connected', 'success');
         showStatus('Ready', 'Ready to sign transactions', 'success');
     };
 
     state.ws.onmessage = async (event) => {
         try {
-            state.currentRequest = JSON.parse(event.data);
+            const message = JSON.parse(event.data);
+            if (message.type === 'ready') return;
+
+            state.currentRequest = message;
             log(`Received ${state.currentRequest.type} request on ${state.currentRequest.chain}`, 'info');
 
             // Switch chain if needed
@@ -513,6 +730,7 @@ function connectWebSocket() {
             renderTransactionPreview(state.currentRequest);
             document.getElementById('txPreview').classList.remove('hidden');
             showStatus('Pending', 'Transaction waiting for approval', 'warning');
+            announceRequest(state.currentRequest);
 
         } catch (error) {
             const err = parseError(error);
@@ -526,7 +744,15 @@ function connectWebSocket() {
         console.error(error);
     };
 
-    state.ws.onclose = () => {
+    state.ws.onclose = (event) => {
+        // 4001 = relay rejected the handshake; retrying with the same token is pointless.
+        if (event.code === 4001) {
+            sessionStorage.removeItem('relayToken');
+            log(`Relay rejected this connection: ${event.reason}`, 'error');
+            showStatus('Not paired', 'The pairing token was rejected. Reopen the wallet link from the MCP server.', 'error');
+            return;
+        }
+
         log('WebSocket disconnected', 'error');
         showStatus('Disconnected', 'Connection to server lost. Reconnecting...', 'error');
         setTimeout(connectWebSocket, 3000);
@@ -596,6 +822,7 @@ async function approveTx() {
         }));
 
         document.getElementById('txPreview').classList.add('hidden');
+        clearRequestNotice();
 
     } catch (error) {
         const err = parseError(error);
@@ -619,6 +846,7 @@ async function approveTx() {
         }));
 
         document.getElementById('txPreview').classList.add('hidden');
+        clearRequestNotice();
         state.currentRequest = null;
     }
 }
@@ -638,40 +866,16 @@ function rejectTx() {
     }));
 
     document.getElementById('txPreview').classList.add('hidden');
+    clearRequestNotice();
     state.currentRequest = null;
 }
 
 // Auto-connect on load
 window.addEventListener('load', async () => {
-    // Determine which provider to use
-    let availableProvider = null;
-    if (window.rabby) {
-        availableProvider = window.rabby;
-    } else if (window.ethereum) {
-        availableProvider = window.ethereum;
-    }
-
-    if (availableProvider) {
-        try {
-            const wasConnected = localStorage.getItem('walletConnected') === 'true';
-
-            if (wasConnected) {
-                log('Reconnecting to saved wallet...', 'info');
-            }
-
-            const accounts = await availableProvider.request({
-                method: 'eth_accounts'
-            });
-
-            if (accounts.length > 0 || wasConnected) {
-                connectWallet();
-            }
-        } catch (error) {
-            log('Auto-connect failed', 'error');
-            console.error(error);
-        }
-    }
-
-    // Load transaction history
+    // Attach before the wallet is connected, so the MCP server knows this tab exists and
+    // doesn't open another one.
+    connectWebSocket();
+    updateNotifyButton();
+    await restoreConnection();
     txHistory.render();
 });
