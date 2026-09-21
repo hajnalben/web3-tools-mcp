@@ -35,6 +35,101 @@ export function convertBigIntToString(obj: unknown): unknown {
   return obj
 }
 
+
+// Summarize a call trace for compact output
+export interface SummarizedCall {
+  type: string
+  from: string
+  to: string
+  selector?: string
+  error?: string
+  depth: number
+}
+
+export function summarizeTrace(trace: unknown): { hasError: boolean; errorPath: SummarizedCall[] | null; summary: string } {
+  // Use ref object to avoid TypeScript closure narrowing issues
+  const result: { errorPath: SummarizedCall[]; errorMessage: string } | null = findErrorInTrace(trace)
+
+  // Generate summary
+  let summary: string
+  if (result) {
+    const lastCall = result.errorPath[result.errorPath.length - 1]
+    summary = `REVERTED at depth ${lastCall.depth}: ${lastCall.to} (${lastCall.selector || 'unknown'}) - ${result.errorMessage}`
+  } else {
+    // For successful txs, just show top-level calls
+    const topCalls: string[] = []
+    const rootCall = trace as Record<string, unknown>
+    const subcalls = rootCall.calls as Record<string, unknown>[] | undefined
+    if (subcalls) {
+      for (const sub of subcalls) {
+        const type = sub.type as string
+        if (type !== 'DELEGATECALL') {
+          const input = sub.input as string | undefined
+          const selector = input && input.length >= 10 ? input.slice(0, 10) : '?'
+          topCalls.push(`${type} ${sub.to} (${selector})`)
+        }
+      }
+    }
+    summary = `SUCCESS - ${topCalls.length} top-level calls: ${topCalls.slice(0, 5).join(', ')}${topCalls.length > 5 ? '...' : ''}`
+  }
+
+  return { 
+    hasError: result !== null, 
+    errorPath: result?.errorPath ?? null, 
+    summary 
+  }
+}
+
+function findErrorInTrace(trace: unknown): { errorPath: SummarizedCall[]; errorMessage: string } | null {
+  if (!trace || typeof trace !== 'object') return null
+
+  function findError(call: Record<string, unknown>, path: SummarizedCall[]): { errorPath: SummarizedCall[]; errorMessage: string } | null {
+    const type = (call.type as string) || 'CALL'
+    const error = (call.error as string) || (call.revertReason as string)
+    const subcalls = call.calls as Record<string, unknown>[] | undefined
+    const input = call.input as string | undefined
+
+    // Skip DELEGATECALL for cleaner output
+    if (type === 'DELEGATECALL') {
+      if (subcalls) {
+        for (const subcall of subcalls) {
+          const result = findError(subcall, path)
+          if (result) return result
+        }
+      }
+      return null
+    }
+
+    const currentCall: SummarizedCall = {
+      type,
+      from: (call.from as string) || '',
+      to: (call.to as string) || '',
+      selector: input && input.length >= 10 ? input.slice(0, 10) : undefined,
+      error: error || undefined,
+      depth: path.length
+    }
+
+    const newPath = [...path, currentCall]
+
+    // Check subcalls first (error might be deeper)
+    if (subcalls) {
+      for (const subcall of subcalls) {
+        const result = findError(subcall, newPath)
+        if (result) return result
+      }
+    }
+
+    // If this call has an error and no subcall had one, this is the source
+    if (error) {
+      return { errorPath: newPath, errorMessage: error }
+    }
+
+    return null
+  }
+
+  return findError(trace as Record<string, unknown>, [])
+}
+
 // Convert arguments to appropriate types based on ABI
 export function convertArgumentsToTypes(
   args: (string | number | boolean | null)[],

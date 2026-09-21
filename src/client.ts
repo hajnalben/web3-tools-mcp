@@ -238,6 +238,10 @@ export class ClientManager {
     return client as ReturnType<typeof createPublicClient>
   }
 
+  getConfig(): Config {
+    return this.config
+  }
+
   getEtherscanDomain(chainName: ChainName): string {
     const domains: Record<ChainName, string> = {
       mainnet: 'etherscan.io',
@@ -255,6 +259,16 @@ export class ClientManager {
       localhost: 'etherscan.io'
     }
     return domains[chainName] || 'etherscan.io'
+  }
+
+  getRpcUrl(chainName: ChainName): string {
+    const chains = CHAINS(this.config)
+    return chains[chainName].rpc
+  }
+
+  getChainId(chainName: ChainName): number {
+    const chains = CHAINS(this.config)
+    return chains[chainName].chain.id
   }
 }
 
