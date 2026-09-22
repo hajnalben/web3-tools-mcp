@@ -165,11 +165,13 @@ function parseError(error) {
 const PAGE_TITLE = document.title
 
 const ALERT_TITLE = '\u26a0 Transaction request'
-const ALERT_FAVICON =
-  'data:image/svg+xml,' +
-  encodeURIComponent(
-    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7" fill="#e8a33d"/></svg>'
-  )
+const favicon = (fill) =>
+  `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7" fill="${fill}"/></svg>`)}`
+
+// Two real icons rather than one that gets removed: taking the <link> away leaves whatever
+// was last drawn sitting in the tab, so the badge outlived the request it announced.
+const IDLE_FAVICON = favicon('#3856d6')
+const ALERT_FAVICON = favicon('#e8a33d')
 
 let flashTimer = null
 
@@ -180,8 +182,7 @@ function setFavicon(href) {
     link.rel = 'icon'
     document.head.appendChild(link)
   }
-  if (href) link.href = href
-  else link.remove()
+  link.href = href
 }
 
 /**
@@ -264,7 +265,7 @@ function updateNotifyButton() {
 
 function clearRequestNotice() {
   stopFlashing()
-  setFavicon(null)
+  setFavicon(IDLE_FAVICON)
   document.title = PAGE_TITLE
 }
 
@@ -974,6 +975,8 @@ window.addEventListener('load', async () => {
   // Attach before the wallet is connected, so the MCP server knows this tab exists and
   // doesn't open another one.
   connectWebSocket()
+  // Give the tab an icon of its own, so the pending badge has something to revert to.
+  setFavicon(IDLE_FAVICON)
   updateNotifyButton()
   await restoreConnection()
   txHistory.render()
