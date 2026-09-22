@@ -3,6 +3,7 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { getClientManager } from './client.js'
 import { getKeyValueStorage } from './kv-storage.js'
+import { log } from './log.js'
 import type { ChainName } from './types.js'
 
 /**
@@ -129,6 +130,7 @@ export class PhoneSigner {
 
   async pair(chains: ChainName[]): Promise<string> {
     await this.start()
+    log('info', 'WalletConnect', `Pairing as "${this.agent ?? 'default name'}" for ${chains.length} chain(s)`)
     if (!this.client) throw new Error('WalletConnect failed to start')
 
     const clientManager = getClientManager()
@@ -144,8 +146,8 @@ export class PhoneSigner {
     this.pairing = { uri, expiresAt: Date.now() + APPROVAL_TIMEOUT }
 
     approval()
-      .then((session) => console.error(`[WalletConnect] Paired with ${session.peer?.metadata?.name ?? 'a wallet'}`))
-      .catch((error) => console.error('[WalletConnect] Pairing was not completed:', error.message))
+      .then((session) => log('info', 'WalletConnect', `Paired with ${session.peer?.metadata?.name ?? 'a wallet'}`))
+      .catch((error) => log('warning', 'WalletConnect', `Pairing was not completed: ${error.message}`))
 
     return uri
   }
@@ -162,11 +164,25 @@ export class PhoneSigner {
       )
     }
 
-    return this.client.request({
-      topic: session.topic,
-      chainId: `eip155:${chainId}`,
-      request: { method, params }
-    })
+    const started = Date.now()
+    log(
+      'info',
+      'WalletConnect',
+      `→ ${method} on ${chain}, session ${session.topic.slice(0, 8)}, waiting for ${session.peer ?? 'wallet'}`
+    )
+    try {
+      const result = await this.client.request({
+        topic: session.topic,
+        chainId: `eip155:${chainId}`,
+        request: { method, params }
+      })
+      log('info', 'WalletConnect', `← ${method} answered in ${Date.now() - started}ms`)
+      return result
+    } catch (error) {
+      const reason = (error as { message?: string })?.message ?? String(error)
+      log('warning', 'WalletConnect', `← ${method} failed after ${Date.now() - started}ms: ${reason}`)
+      throw error
+    }
   }
 
   /** Every live session, not just the one that would be used for signing. */
@@ -193,14 +209,14 @@ export class PhoneSigner {
     for (const session of sessions) {
       await this.client
         .disconnect({ topic: session.topic, reason: { code: 6000, message: 'User disconnected' } })
-        .catch((error) => console.error('[WalletConnect] Could not disconnect a session:', error.message))
+        .catch((error) => log('warning', 'WalletConnect', `Could not disconnect a session: ${error.message}`))
     }
 
     const pairings = this.client.core.pairing.getPairings()
     for (const pairing of pairings) {
       await this.client.core.pairing
         .disconnect({ topic: pairing.topic })
-        .catch((error) => console.error('[WalletConnect] Could not drop a pairing:', error.message))
+        .catch((error) => log('warning', 'WalletConnect', `Could not drop a pairing: ${error.message}`))
     }
 
     return { sessions: sessions.length, pairings: pairings.length }

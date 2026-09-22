@@ -6,6 +6,7 @@ import { WalletRelay } from 'web3-wallet-relay'
 import packageJson from '../package.json' with { type: 'json' }
 import { initializeClientManager, SUPPORTED_CHAINS } from './client.js'
 import { startHttpServer } from './http-server.js'
+import { attachLogServer } from './log.js'
 import { registerAllTools } from './tools/index.js'
 import { parseCommandLineArgs } from './utils.js'
 import { getWalletClient } from './wallet-client.js'
@@ -92,10 +93,7 @@ if (config.customRpcUrls) {
 initializeClientManager(config)
 
 function createMcpServer() {
-  const server = new McpServer({
-    name: 'web3-tools-mcp',
-    version: packageJson.version
-  })
+  const server = new McpServer({ name: 'web3-tools-mcp', version: packageJson.version }, { capabilities: { logging: {} } })
   registerAllTools(server)
   return server
 }
@@ -161,7 +159,9 @@ async function main() {
   }
 
   const transport = new StdioServerTransport()
-  await createMcpServer().connect(transport)
+  const server = createMcpServer()
+  attachLogServer(server)
+  await server.connect(transport)
   console.error('Web3 Tools MCP Server running on stdio')
   // The relay may still be picking a free port, and its URL carries the pairing token.
   await walletReady

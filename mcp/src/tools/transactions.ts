@@ -3,6 +3,7 @@ import qrcode from 'qrcode-terminal'
 import { type AbiFunction, type Address, encodeFunctionData, isAddress, parseAbiItem, parseUnits, toHex } from 'viem'
 import { z } from 'zod'
 import { getClientManager, SUPPORTED_CHAINS } from '../client.js'
+import { log } from '../log.js'
 import { buildTxPreview, type RawTx, type TxPreview } from '../preview.js'
 import type { ChainName } from '../types.js'
 import { createTool, formatResponse } from '../utils.js'
@@ -66,6 +67,7 @@ async function signOnPhone(chain: ChainName, tx: RawTx & { data?: string }) {
 }
 
 async function requestSignature(chain: ChainName, tx: RawTx & { data?: string }, signWith: SignWith) {
+  log('info', 'Transaction', `${chain} → ${tx.to}, signing with ${signWith}`)
   if (signWith === 'phone') return signOnPhone(chain, tx)
 
   const wallet = getWalletClient()
@@ -113,7 +115,7 @@ function describeError(error: unknown): string {
 }
 
 function failure(error: unknown, message: string) {
-  console.error('[Transaction]', message, '—', describeError(error))
+  log('warning', 'Transaction', `${message} — ${describeError(error)}`)
   return formatResponse({
     success: false,
     error: describeError(error),

@@ -215,6 +215,7 @@ export class WalletRelay {
       }
 
       ws.on('error', () => ws.close())
+      console.error(`[Wallet] ${hello.role} joined${hello.address ? ` as ${hello.address}` : ''}`)
       ws.send(JSON.stringify({ type: 'ready' }))
       this.broadcastStatus()
     })
@@ -237,6 +238,7 @@ export class WalletRelay {
     }
 
     this.routes.set(request.id, { requester, signer })
+    console.error(`[Wallet] Routed ${request.type} ${request.id.slice(0, 8)} on ${request.chain} to a signer`)
     signer.send(JSON.stringify(request))
   }
 
