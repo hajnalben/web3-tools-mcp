@@ -456,8 +456,11 @@ async function establishConnection({ provider, name }, accounts) {
   })
 
   provider.on('chainChanged', () => {
-    log('Chain changed, reloading...', 'info')
-    location.reload()
+    // Never reload here. This fires in the middle of switching for a request, and a reload
+    // drops the relay socket and the pending request with it. updateWalletInfo re-reads
+    // everything the chain affects, which is all a reload ever bought.
+    log('Chain changed', 'info')
+    updateWalletInfo()
   })
 }
 
@@ -830,6 +833,22 @@ function connectWebSocket() {
 }
 
 // Transaction Actions
+/** Put the wallet on the chain a request names, and refuse to sign if it will not go. */
+async function requireChain(chainName) {
+  const target = CHAIN_CONFIGS[chainName]
+  if (!target) throw new Error(`This page does not know the chain "${chainName}", so it cannot check the wallet is on it.`)
+
+  if ((await window.ethereum.request({ method: 'eth_chainId' })) === target.chainId) return
+
+  log(`Switching to ${target.name}...`, 'info')
+  await switchChain(chainName)
+
+  // Trust the wallet's answer, not the switch call resolving: some wallets resolve early.
+  if ((await window.ethereum.request({ method: 'eth_chainId' })) !== target.chainId) {
+    throw new Error(`Wallet is not on ${target.name}. Switch to it and approve again.`)
+  }
+}
+
 async function approveTx() {
   if (!state.currentRequest) return
 
@@ -852,6 +871,11 @@ async function approveTx() {
     let result
 
     if (request.type === 'send_transaction') {
+      // eth_sendTransaction carries no chain id: the wallet signs on whatever chain is
+      // selected. Without this a transaction previewed for one chain could be broadcast on
+      // another, to the same address, where that address is some other contract entirely.
+      await requireChain(request.chain)
+
       const txData = {
         ...request.data,
         from: state.account
