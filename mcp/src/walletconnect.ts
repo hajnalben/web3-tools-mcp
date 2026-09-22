@@ -113,19 +113,21 @@ export class PhoneSigner {
    * background — a tool result only reaches the user once it returns, so blocking here
    * would hide the QR they are supposed to scan.
    */
-  async pair(chains: ChainName[], agent?: string): Promise<string> {
-    // Metadata is fixed when the client starts, so a new label needs a new client. Only
-    // safe while nothing is connected — an existing session owns the old client.
-    if (agent && agent !== this.agent && this.client && this.client.session.getAll().length === 0) {
-      // Close it rather than dropping the reference. Two clients sharing one storage
-      // directory overwrite each other's subscription record, and the one that loses stops
-      // receiving replies on its own session — a signing request then reaches the wallet,
-      // gets approved, and the answer is published where nobody is listening.
-      await this.client.core.relayer.transportClose().catch(() => {})
-      this.client = undefined
-    }
-    if (agent) this.agent = agent
+  /**
+   * Name who is asking, for the wallet's approval dialog. Takes effect only before the
+   * client starts, because WalletConnect fixes metadata at init — call it first.
+   *
+   * There is deliberately no way to relabel a running client. Replacing it leaves the old
+   * one's engine alive, and its heartbeat sweeps "orphaned" subscriptions against its own,
+   * empty session list — unsubscribing the new session's topic two seconds after it
+   * settles, so every reply the wallet sends goes to a topic nobody is listening on. A
+   * stale name in the dialog is a far smaller cost than signing that silently hangs.
+   */
+  nameAgent(agent?: string): void {
+    if (agent && !this.client) this.agent = agent
+  }
 
+  async pair(chains: ChainName[]): Promise<string> {
     await this.start()
     if (!this.client) throw new Error('WalletConnect failed to start')
 

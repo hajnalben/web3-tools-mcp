@@ -1,6 +1,6 @@
 {
   "name": "web3-tools-mcp",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "description": "Model Context Protocol server for blockchain data and transaction signing — sign in a browser wallet or on your phone, with simulation and ERC-7730 clear signing before you approve",
   "type": "module",
   "main": "dist/index.js",

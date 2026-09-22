@@ -330,6 +330,8 @@ export default {
       }
 
       try {
+        // Before anything starts the client: its name is fixed the moment it does.
+        phone.nameAgent(args.agent)
         const existing = await phone.session()
         if (existing) {
           return formatResponse({
@@ -341,7 +343,7 @@ export default {
         }
 
         const chains = (args.chains ?? SUPPORTED_CHAINS.filter((c) => c !== 'localhost')) as ChainName[]
-        const uri = await phone.pair(chains, args.agent)
+        const uri = await phone.pair(chains)
         const projectId = getClientManager().getConfig().walletConnectProjectId as string
 
         return formatResponse({

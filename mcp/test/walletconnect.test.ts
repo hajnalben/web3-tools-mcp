@@ -38,29 +38,34 @@ describe.skipIf(!projectId)('WalletConnect phone signing', () => {
   }, 60000)
 
   /**
-   * Relabelling replaces the client, because metadata is fixed at init. Dropping the old
-   * reference without closing it leaves two clients on one storage directory, and they
-   * overwrite each other's subscription record — the loser stops receiving replies, so a
-   * request reaches the wallet, gets approved, and the answer goes nowhere.
+   * Relabelling used to replace the client, and the old one's heartbeat then swept the new
+   * session's topic as orphaned two seconds after it settled — every reply from the wallet
+   * went nowhere and signing hung. So the name is taken before the client starts, and a
+   * running client is never replaced.
    */
-  it('closes the replaced client when the agent label changes', async () => {
+  it('pairs with one client, named before it starts', async () => {
+    type Inspectable = { client?: { metadata: { name: string } } }
+    const signer = new PhoneSigner(projectId as string)
+
+    signer.nameAgent('Agent Under Test')
+    await signer.isPaired()
+    const only = (signer as unknown as Inspectable).client
+    expect(only?.metadata.name).toContain('Agent Under Test')
+
+    await signer.pair(['mainnet'])
+    expect((signer as unknown as Inspectable).client).toBe(only)
+  }, 60000)
+
+  it('ignores a name given after the client has started', async () => {
+    type Inspectable = { client?: { metadata: { name: string } } }
     const signer = new PhoneSigner(projectId as string)
     await signer.isPaired()
 
-    const replaced = (signer as unknown as { client: { core: { relayer: { transportClose: () => Promise<void> } } } }).client
-    expect(replaced).toBeTruthy()
+    signer.nameAgent('Too Late')
+    await signer.pair(['mainnet'])
 
-    let closed = false
-    const original = replaced.core.relayer.transportClose.bind(replaced.core.relayer)
-    replaced.core.relayer.transportClose = async () => {
-      closed = true
-      return original()
-    }
-
-    await signer.pair(['mainnet'], 'Agent Under Test')
-
-    expect(closed).toBe(true)
-    expect((signer as unknown as { client: unknown }).client).not.toBe(replaced)
+    const client = (signer as unknown as Inspectable).client
+    expect(client?.metadata.name).not.toContain('Too Late')
   }, 60000)
 })
 

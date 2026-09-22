@@ -2,6 +2,26 @@
 
 Notable changes per release. Dates are release dates; unreleased work sits at the top.
 
+## [2.0.2] — 2026-09-22
+
+### Fixed
+
+- **Phone signing hung, for real this time.** 2.0.1 had the right symptom but the wrong
+  cause, and did not fix it. Naming the agent in `pair_phone_wallet` started a second
+  WalletConnect client, because the handler had already started one to check for an
+  existing session. The first client's engine kept running, and its heartbeat sweeps
+  "orphaned" subscriptions against its own, empty session list — so two seconds after the
+  new session settled, it unsubscribed the session's topic. Every reply the wallet sent
+  after that went nowhere. Closing the old transport, which is what 2.0.1 did, never
+  stopped that heartbeat.
+
+  Now there is only ever one client. The agent's name is set before it starts, and a
+  running client is never replaced. If one already exists, the wallet dialog keeps the
+  earlier name, which costs far less than signing that silently hangs.
+
+  Found by trapping every `unsubscribe` with a stack trace. If you paired under 2.0.0 or
+  2.0.1, run `disconnect_phone_wallet` and pair again.
+
 ## [2.0.1] — 2026-09-22
 
 ### Fixed
