@@ -117,6 +117,11 @@ export class PhoneSigner {
     // Metadata is fixed when the client starts, so a new label needs a new client. Only
     // safe while nothing is connected — an existing session owns the old client.
     if (agent && agent !== this.agent && this.client && this.client.session.getAll().length === 0) {
+      // Close it rather than dropping the reference. Two clients sharing one storage
+      // directory overwrite each other's subscription record, and the one that loses stops
+      // receiving replies on its own session — a signing request then reaches the wallet,
+      // gets approved, and the answer is published where nobody is listening.
+      await this.client.core.relayer.transportClose().catch(() => {})
       this.client = undefined
     }
     if (agent) this.agent = agent

@@ -2,6 +2,20 @@
 
 Notable changes per release. Dates are release dates; unreleased work sits at the top.
 
+## [2.0.1] — 2026-09-22
+
+### Fixed
+
+- **A phone signature could never come back.** Naming the agent in `pair_phone_wallet`
+  replaces the WalletConnect client, because its metadata is fixed at init — but the old
+  one was dropped without being closed. Two clients then shared one storage directory and
+  overwrote each other's subscription record, so the surviving session was left subscribed
+  to nothing: a request reached the wallet, you approved it, and the reply was published
+  where nobody was listening. The tool simply hung. The replaced client is closed now.
+
+  If you hit this, re-pair after upgrading — the stored session's subscription is what was
+  lost, and a fresh client rebuilds it.
+
 ## [2.0.0] — 2026-09-21
 
 The theme is signing: where a transaction can be signed, and what you are told before you
