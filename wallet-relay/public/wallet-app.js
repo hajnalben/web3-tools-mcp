@@ -195,7 +195,10 @@ function startFlashing() {
   let showing = false
   flashTimer = setInterval(() => {
     showing = !showing
-    document.title = showing ? ALERT_TITLE : PAGE_TITLE
+    // Both phases read as pending on purpose. A hidden tab has its timers throttled — to
+    // once a minute after a while — so a cycle that dipped back to the idle title could
+    // park there, advertising nothing at the moment it matters most.
+    document.title = showing ? ALERT_TITLE : `\u25cf ${PAGE_TITLE}`
   }, 900)
 }
 
@@ -796,16 +799,21 @@ function connectWebSocket() {
       state.currentRequest = message
       log(`Received ${state.currentRequest.type} request on ${state.currentRequest.chain}`, 'info')
 
-      // Switch chain if needed
-      if (state.currentRequest.chain && state.currentRequest.chain !== 'any') {
-        await switchToChain(state.currentRequest.chain)
-      }
-
-      // Show transaction preview
+      // Announce before anything that can block. Switching chains opens a wallet popup,
+      // and in a background tab nobody sees it — so waiting for it first meant the alert
+      // that exists to fetch you never fired until you came back of your own accord.
       renderTransactionPreview(state.currentRequest)
       document.getElementById('txPreview').classList.remove('hidden')
       showStatus('Pending', 'Transaction waiting for approval', 'warning')
       announceRequest(state.currentRequest)
+
+      // Line the wallet up on the right chain, so the preview matches what will be signed.
+      // A refusal here is not fatal: approving re-checks and will not sign on the wrong one.
+      if (state.currentRequest.chain && state.currentRequest.chain !== 'any') {
+        await switchToChain(state.currentRequest.chain).catch((error) => {
+          log(`Could not switch chain yet: ${parseError(error).message}`, 'warn')
+        })
+      }
     } catch (error) {
       const err = parseError(error)
       log(`Error handling message: ${err.message}`, 'error')
@@ -842,7 +850,7 @@ async function requireChain(chainName) {
   if ((await window.ethereum.request({ method: 'eth_chainId' })) === target.chainId) return
 
   log(`Switching to ${target.name}...`, 'info')
-  await switchChain(chainName)
+  await switchToChain(chainName)
 
   // Trust the wallet's answer, not the switch call resolving: some wallets resolve early.
   if ((await window.ethereum.request({ method: 'eth_chainId' })) !== target.chainId) {
