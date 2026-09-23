@@ -1,9 +1,11 @@
 import { requireBearerAuth } from '@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js'
+import type { OAuthServerProvider } from '@modelcontextprotocol/sdk/server/auth/provider.js'
 import { getOAuthProtectedResourceMetadataUrl, mcpAuthRouter } from '@modelcontextprotocol/sdk/server/auth/router.js'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import express from 'express'
 import type { WalletRelay } from 'web3-wallet-relay'
+import { HOSTED } from './hosted.js'
 import { SingleUserOAuthProvider } from './oauth.js'
 
 /**
@@ -31,22 +33,41 @@ export interface HttpServerOptions {
   /** Serve the signing page on this same server, so browser signing works when hosted. */
   walletRelay?: WalletRelay
   createMcpServer: () => McpServer
+  /**
+   * Who may connect, and as whom.
+   *
+   * The default authenticates the deployment rather than a person: one token, shared. A
+   * host serving several people supplies its own — logging them in however it likes, and
+   * putting the identity in the issued token's `extra`, which is where the tools read it
+   * from. `MCP_TOKEN` is then no longer required.
+   */
+  provider?: OAuthServerProvider
 }
 
 export async function startHttpServer(options: HttpServerOptions): Promise<{ url: string; port: number; walletUrl?: string }> {
+  // The guards a shared host needs — no `localhost` chain, no loopback tracing node, no
+  // browser opened on the server — were decided when the package loaded, and cannot be
+  // switched on from here.
+  if (!HOSTED) {
+    throw new Error(
+      'Serving over HTTP needs MCP_HOSTED=1 (or MCP_HTTP_PORT) in the environment before web3-tools-mcp is imported'
+    )
+  }
+
   const port = options.port ?? Number(process.env.MCP_HTTP_PORT) ?? DEFAULT_PORT
   const host = options.host ?? process.env.MCP_HTTP_HOST ?? '0.0.0.0'
   const token = options.token ?? process.env.MCP_TOKEN
 
   // A reachable MCP server with a paired phone can push signing prompts at that phone. It
-  // never runs without a token.
-  if (!token) {
+  // never runs unauthenticated — either a host brought its own way to log people in, or
+  // there is a token.
+  if (!options.provider && !token) {
     throw new Error('MCP_TOKEN is required to serve MCP over HTTP — anyone reaching the URL could request signatures')
   }
 
   const publicUrl = options.publicUrl ?? process.env.MCP_PUBLIC_URL ?? `http://localhost:${port}`
   const issuer = new URL(publicUrl)
-  const provider = new SingleUserOAuthProvider(token)
+  const provider = options.provider ?? new SingleUserOAuthProvider(token as string)
 
   const app = express()
   app.use(express.json())
@@ -110,7 +131,7 @@ export async function startHttpServer(options: HttpServerOptions): Promise<{ url
   let walletUrl: string | undefined
   if (options.walletRelay) {
     options.walletRelay.attach(server, (relayApp) => app.use(relayApp))
-    walletUrl = `${publicUrl.replace(/\/$/, '')}/#t=${options.walletRelay.token}`
+    walletUrl = `${publicUrl.replace(/\/$/, '')}/#t=${options.walletRelay.signerToken}`
   }
 
   return { url: `${publicUrl.replace(/\/$/, '')}/mcp`, port: (server.address() as { port: number }).port, walletUrl }

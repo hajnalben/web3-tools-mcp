@@ -29,12 +29,14 @@ interface StoredCode {
   redirectUri: string
   resource?: string
   scopes: string[]
+  address?: string
   expiresAt: number
 }
 
 interface StoredToken {
   clientId: string
   scopes: string[]
+  address?: string
   expiresAt: number
 }
 
@@ -92,18 +94,28 @@ function constantTimeEquals(a: string, b: string): boolean {
   return left.length === right.length && timingSafeEqual(left, right)
 }
 
-function loginPage(params: { error?: string; fields: Record<string, string> }): string {
-  // The SDK's authorize handler reads its parameters from the body on POST, so the form
-  // has to carry the whole authorization request back, not just the token.
-  const hidden = Object.entries(params.fields)
-    .map(([name, value]) => `<input type="hidden" name="${escapeHtml(name)}" value="${escapeHtml(value)}">`)
-    .join('\n  ')
+/**
+ * How a deployment decides who is at the authorize screen.
+ *
+ * Deliberately free of any type from the MCP SDK, a chain library, or this package: an
+ * implementation renders a page and reads back a form, and everything about *how* somebody
+ * proves who they are — a shared token, a wallet signature, a company SSO — stays outside.
+ * Returning an address makes the issued token that person's; returning none authenticates
+ * the deployment rather than anybody in particular.
+ */
+export interface Login {
+  /** The page served at GET /authorize. `hidden` must be placed inside its form. */
+  page(hidden: string, error?: string): string | Promise<string>
+  /** Reads the posted form. An `error` re-renders the page; an `address` names the person. */
+  identify(form: Record<string, string>): Promise<{ address?: string; error?: string }>
+  /**
+   * Form fields this login owns. They are kept out of the hidden inputs replayed into the
+   * page, so a credential can never be echoed back into the HTML.
+   */
+  owns?: string[]
+}
 
-  return `<!doctype html>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Connect to web3-tools-mcp</title>
-<style>
+const PAGE_STYLE = `
   :root { color-scheme: light dark; }
   body { font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; max-width: 26rem;
          margin: 12vh auto; padding: 0 1.25rem; }
@@ -113,22 +125,45 @@ function loginPage(params: { error?: string; fields: Record<string, string> }): 
                   box-sizing: border-box; }
   input { border: 1px solid #ccd; font-family: ui-monospace, monospace; }
   button { margin-top: .75rem; border: 0; background: #3856d6; color: #fff; font-weight: 600; }
-  .error { color: #b3251d; font-weight: 600; }
+  .error { color: #b3251d; font-weight: 600; }`
+
+/** The default: one shared credential, so a self-hoster needs no identity provider. */
+export function tokenLogin(accessToken: string): Login {
+  return {
+    owns: ['token'],
+    page: (hidden, error) => `<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Connect to web3-tools-mcp</title>
+<style>${PAGE_STYLE}
 </style>
 <h1>Connect to web3-tools-mcp</h1>
 <p>Paste this server's access token to authorise the client.</p>
-${params.error ? `<p class="error">${params.error}</p>` : ''}
+${error ? `<p class="error">${error}</p>` : ''}
 <form method="post">
   ${hidden}
   <input name="token" type="password" placeholder="MCP_TOKEN" autocomplete="off" autofocus>
   <button type="submit">Authorise</button>
-</form>`
+</form>`,
+    async identify(form) {
+      if (!constantTimeEquals(form.token ?? '', accessToken)) return { error: 'That token was not accepted.' }
+      // No address: this authenticates the deployment, not a person.
+      return {}
+    }
+  }
 }
 
-export class SingleUserOAuthProvider implements OAuthServerProvider {
+export class OAuthProvider implements OAuthServerProvider {
   private store = new Store()
 
-  constructor(private accessToken: string) {}
+  /**
+   * `staticToken` is accepted verbatim in an Authorization header, for clients that can send
+   * one and skip the flow entirely. It names no person, so it carries no identity.
+   */
+  constructor(
+    private login: Login,
+    private staticToken?: string
+  ) {}
 
   get clientsStore(): OAuthRegisteredClientsStore {
     const store = this.store
@@ -151,33 +186,34 @@ export class SingleUserOAuthProvider implements OAuthServerProvider {
   }
 
   /**
-   * GET renders the token prompt; POST checks it and redirects back with a code. Handling
-   * both here keeps the whole login inside the SDK's authorize route.
+   * GET renders the login; POST hands the form to it and, if it names somebody, redirects
+   * back with a code. Handling both here keeps the whole login inside the SDK's authorize
+   * route, which is the only place the client will follow a redirect from.
    */
   async authorize(client: OAuthClientInformationFull, params: AuthorizationParams, res: Response): Promise<void> {
     const request = res.req
-    const submitted = (request.body as { token?: string } | undefined)?.token ?? ''
+    const form = { ...(request.query as Record<string, string>), ...(request.body as Record<string, string>) }
 
-    // Everything except the token itself is replayed into the form, so the handler sees a
-    // complete authorization request when the form posts back.
-    const fields = Object.fromEntries(
-      Object.entries({ ...(request.query as Record<string, string>), ...(request.body as Record<string, string>) }).filter(
-        ([name, value]) => name !== 'token' && typeof value === 'string'
-      )
-    ) as Record<string, string>
+    // The SDK's authorize handler reads its parameters from the body on POST, so the form
+    // has to carry the whole authorization request back — minus whatever the login owns,
+    // which would mean echoing a credential into the HTML.
+    const owned = new Set(this.login.owns ?? [])
+    const hidden = Object.entries(form)
+      .filter(([name, value]) => !owned.has(name) && typeof value === 'string')
+      .map(([name, value]) => `<input type="hidden" name="${escapeHtml(name)}" value="${escapeHtml(value)}">`)
+      .join('\n  ')
 
-    if (request.method !== 'POST') {
-      res.setHeader('content-type', 'text/html; charset=utf-8').send(loginPage({ fields }))
-      return
-    }
-
-    if (!constantTimeEquals(submitted, this.accessToken)) {
+    const render = async (status: number, error?: string) => {
       res
-        .status(401)
+        .status(status)
         .setHeader('content-type', 'text/html; charset=utf-8')
-        .send(loginPage({ fields, error: 'That token was not accepted.' }))
-      return
+        .send(await this.login.page(hidden, error ? escapeHtml(error) : undefined))
     }
+
+    if (request.method !== 'POST') return render(200)
+
+    const identified = await this.login.identify(form)
+    if (identified.error) return render(401, identified.error)
 
     const code = randomBytes(24).toString('hex')
     await this.store.set<StoredCode>(`code:${code}`, {
@@ -186,6 +222,7 @@ export class SingleUserOAuthProvider implements OAuthServerProvider {
       redirectUri: params.redirectUri,
       resource: params.resource?.href,
       scopes: params.scopes ?? [],
+      address: identified.address,
       expiresAt: Date.now() + CODE_TTL
     })
 
@@ -208,7 +245,7 @@ export class SingleUserOAuthProvider implements OAuthServerProvider {
 
     // One use only: a replayed code must not mint a second token.
     await this.store.remove(`code:${authorizationCode}`)
-    return this.issue(client.client_id, stored.scopes)
+    return this.issue(client.client_id, stored.scopes, stored.address)
   }
 
   async exchangeRefreshToken(client: OAuthClientInformationFull, refreshToken: string, scopes?: string[]): Promise<OAuthTokens> {
@@ -217,16 +254,17 @@ export class SingleUserOAuthProvider implements OAuthServerProvider {
     if (stored.clientId !== client.client_id) throw new Error('Refresh token was issued to a different client')
 
     await this.store.remove(`refresh:${refreshToken}`)
-    return this.issue(client.client_id, scopes ?? stored.scopes)
+    // The refreshed token stays the same person's: a refresh proves possession, not identity.
+    return this.issue(client.client_id, scopes ?? stored.scopes, stored.address)
   }
 
-  private async issue(clientId: string, scopes: string[]): Promise<OAuthTokens> {
+  private async issue(clientId: string, scopes: string[], address?: string): Promise<OAuthTokens> {
     const accessToken = randomBytes(32).toString('hex')
     const refreshToken = randomBytes(32).toString('hex')
     const expiresAt = Math.floor(Date.now() / 1000) + TOKEN_TTL
 
-    await this.store.set<StoredToken>(`token:${accessToken}`, { clientId, scopes, expiresAt })
-    await this.store.set<StoredToken>(`refresh:${refreshToken}`, { clientId, scopes, expiresAt })
+    await this.store.set<StoredToken>(`token:${accessToken}`, { clientId, scopes, address, expiresAt })
+    await this.store.set<StoredToken>(`refresh:${refreshToken}`, { clientId, scopes, address, expiresAt })
 
     return {
       access_token: accessToken,
@@ -237,9 +275,9 @@ export class SingleUserOAuthProvider implements OAuthServerProvider {
     }
   }
 
-  /** Accepts an issued token, or MCP_TOKEN itself so a client that can send a header still works. */
+  /** Accepts an issued token, or the static one so a client that can send a header still works. */
   async verifyAccessToken(token: string): Promise<AuthInfo> {
-    if (constantTimeEquals(token, this.accessToken)) {
+    if (this.staticToken && constantTimeEquals(token, this.staticToken)) {
       // requireBearerAuth refuses a token with no expiry, and this one never expires.
       return { token, clientId: 'static', scopes: [], expiresAt: Math.floor(Date.now() / 1000) + TOKEN_TTL }
     }
@@ -253,12 +291,27 @@ export class SingleUserOAuthProvider implements OAuthServerProvider {
       throw new InvalidTokenError('Access token has expired')
     }
 
-    return { token, clientId: stored.clientId, scopes: stored.scopes, expiresAt: stored.expiresAt }
+    // `extra.address` is where the tools read the caller's identity from; a token that names
+    // nobody leaves it unset, and everything falls back to the shared identity.
+    return {
+      token,
+      clientId: stored.clientId,
+      scopes: stored.scopes,
+      expiresAt: stored.expiresAt,
+      ...(stored.address ? { extra: { address: stored.address } } : {})
+    }
   }
 
   async revokeToken(_client: OAuthClientInformationFull, request: { token: string }): Promise<void> {
     await this.store.remove(`token:${request.token}`)
     await this.store.remove(`refresh:${request.token}`)
+  }
+}
+
+/** One shared credential, which is all a self-hosted server needs. */
+export class SingleUserOAuthProvider extends OAuthProvider {
+  constructor(accessToken: string) {
+    super(tokenLogin(accessToken), accessToken)
   }
 }
 

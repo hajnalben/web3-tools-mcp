@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import gasTools from '../../src/tools/gas.js'
+import gasTools from '../../src/tools/read/gas.js'
 import { hasProviderRpc } from '../setup.js'
 
 describe('Gas Tools', () => {

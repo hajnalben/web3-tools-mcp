@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import balanceTools from '../../src/tools/balance.js'
+import balanceTools from '../../src/tools/read/balance.js'
 import { hasProviderRpc } from '../setup.js'
 
 describe('Balance Tools', () => {

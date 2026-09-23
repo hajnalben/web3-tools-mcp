@@ -1,8 +1,8 @@
 import { type Address, formatEther, formatUnits, isAddress } from 'viem'
 import { z } from 'zod'
-import { getClientManager, SUPPORTED_CHAINS } from '../client.js'
-import type { ChainName } from '../types.js'
-import { createTool, formatResponse } from '../utils.js'
+import { getClientManager, SUPPORTED_CHAINS } from '../../client.js'
+import type { ChainName } from '../../types.js'
+import { createTool, formatResponse } from '../../utils.js'
 
 const BalanceQuerySchema = z.object({
   chain: z.enum(SUPPORTED_CHAINS).describe('The blockchain network to use'),

@@ -13,9 +13,9 @@ import {
   toEventSignature
 } from 'viem'
 import { z } from 'zod'
-import { getClientManager, SUPPORTED_CHAINS } from '../client.js'
-import type { ChainName } from '../types.js'
-import { convertEventArgsToTypes, createTool, formatResponse } from '../utils.js'
+import { getClientManager, SUPPORTED_CHAINS } from '../../client.js'
+import type { ChainName } from '../../types.js'
+import { convertEventArgsToTypes, createTool, formatResponse } from '../../utils.js'
 
 /**
  * A topic is always 32 bytes, so an address, a number or a short hex value has to be

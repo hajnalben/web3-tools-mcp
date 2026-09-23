@@ -10,8 +10,8 @@ import {
   toFunctionSignature
 } from 'viem'
 import { z } from 'zod'
-import type { AbiError } from '../types.js'
-import { createTool, formatResponse } from '../utils.js'
+import type { AbiError } from '../../types.js'
+import { createTool, formatResponse } from '../../utils.js'
 
 const FunctionAbiSchema = z.object({
   functionAbi: z.string().describe('Function ABI definition (e.g., "function transfer(address to, uint256 amount)")')

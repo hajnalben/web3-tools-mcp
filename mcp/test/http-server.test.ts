@@ -1,7 +1,12 @@
 import { createServer, type Server } from 'node:http'
-import { afterEach, describe, expect, it } from 'vitest'
-import { startHttpServer } from '../src/http-server.js'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { getKeyValueStorage } from '../src/kv-storage.js'
+
+// The hosted flag is read when the package loads, and the setup file has loaded it
+// already — so set it and load the server afresh.
+process.env.MCP_HOSTED = '1'
+vi.resetModules()
+const { startHttpServer } = await import('../src/http-server.js')
 
 const TOKEN = 'test-mcp-token'
 

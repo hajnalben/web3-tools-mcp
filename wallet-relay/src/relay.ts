@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto'
+import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
 import { createServer, type Server } from 'node:http'
 import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -37,7 +37,52 @@ export interface SignerStatus {
   pageAgent?: string
 }
 
-type Role = 'signer' | 'requester'
+export type Role = 'signer' | 'requester'
+
+/**
+ * A token admitting one role to one room, signed by the relay's secret.
+ *
+ * The room travels in the token so the relay needs no record of who exists: it recomputes
+ * the signature and believes the room only if it matches. Whoever holds the secret — the
+ * MCP server — can mint a pair per person; nobody else can mint any.
+ *
+ * The roles are separated because they are not equally exposed. The page's token rides in
+ * a URL the user opens, keeps in history and shares on screen, while the requester's never
+ * leaves the server — and a requester can propose transactions, supplying much of what the
+ * page then displays about them.
+ */
+export function roomToken(secret: string, room: Room, role: Role): string {
+  const mac = createHmac('sha256', secret).update(`${role}:${room}`).digest('hex').slice(0, 32)
+  return `${encodeURIComponent(room)}.${mac}`
+}
+
+/** The room a token is good for in this role, or null if it is not ours. */
+function verifyRoomToken(secret: string, token: string, role: Role): Room | null {
+  const split = token.lastIndexOf('.')
+  if (split <= 0) return null
+
+  let room: Room
+  try {
+    room = decodeURIComponent(token.slice(0, split))
+  } catch {
+    return null
+  }
+
+  // Constant-time: the MAC is the only thing standing between a guess and a room.
+  const expected = Buffer.from(roomToken(secret, room, role))
+  const given = Buffer.from(token)
+  return expected.length === given.length && timingSafeEqual(expected, given) ? room : null
+}
+
+/** A frame's JSON when it is an object; anything else off the wire is dropped, not thrown on. */
+function parseFrame(data: Buffer): Record<string, unknown> | null {
+  try {
+    const value = JSON.parse(data.toString())
+    return value && typeof value === 'object' ? value : null
+  } catch {
+    return null
+  }
+}
 
 interface Hello {
   token: string
@@ -46,7 +91,51 @@ interface Hello {
   url?: string
 }
 
+/**
+ * The boundary between people sharing one relay: a transaction is only ever offered to a
+ * wallet page in the same room, and a page only ever learns about its own room's signers.
+ *
+ * Nothing stores rooms. A room is a label carried by the connections currently in it, so
+ * it exists while someone is there and is gone when the last socket closes. Which token
+ * belongs to which room is identity, and that lives in the resolver, not here.
+ */
+export type Room = string
+
+/** Which room a token may join in a given role, or null to refuse the connection. */
+export type RoomResolver = (token: string, role: Role) => Room | null | Promise<Room | null>
+
+/** Every self-hosted run: one shared token pair, therefore one room. */
+const DEFAULT_ROOM: Room = 'default'
+
+/**
+ * The resolver used when the host supplies none: admit any room whose token this secret
+ * signed. A self-hosted server only ever mints DEFAULT_ROOM, so it sees one room; a hosted
+ * one mints a pair per person and gets isolation without keeping a list of anybody.
+ *
+ * Replace it to decide rooms some other way — from a database, or to refuse a token that
+ * is still validly signed but whose owner has stopped paying.
+ */
+function signedRooms(secret: string): RoomResolver {
+  return (token, role) => verifyRoomToken(secret, token, role)
+}
+
 const HANDSHAKE_TIMEOUT = 10_000
+
+/** Generous next to a 32-character default or a 64-character HMAC, and bounds the key. */
+const MAX_TOKEN_LENGTH = 512
+
+/**
+ * Well clear of a real request — contract creation calldata tops out near 98KB of hex, and
+ * a decoded preview adds little — while refusing the 100MB frame ws would otherwise take.
+ */
+const MAX_PAYLOAD = 512 * 1024
+
+/**
+ * Connections one room may hold, counting both roles. A person needs a handful: a wallet
+ * tab or two, and a requester per editor session sharing the local relay. The cap is there
+ * so one room cannot exhaust the process's sockets for every other room.
+ */
+const MAX_PER_ROOM = 16
 
 /** Ports a local relay may occupy, 3456 upward. Requesters scan the same span. */
 export const LOCAL_PORT_ATTEMPTS = 5
@@ -66,18 +155,28 @@ export class WalletRelay {
   private borrowedServer = false
   private wss: WebSocketServer | null = null
   private heartbeat: NodeJS.Timeout | null = null
-  private signers = new Map<WebSocket, { address?: string; url?: string; agent?: string }>()
-  private requesters = new Set<WebSocket>()
+  private signers = new Map<WebSocket, { room: Room; address?: string; url?: string; agent?: string }>()
+  private requesters = new Map<WebSocket, Room>()
   private routes = new Map<string, { requester: WebSocket; signer: WebSocket }>()
+  private resolveRoom: RoomResolver
   private port: number
   private host: string
+  /**
+   * The secret every room's tokens are signed with — not itself a credential, and never
+   * given to a browser. Holding it is enough to mint a token for any room, so it stays on
+   * the server that decides who gets one.
+   */
   readonly token: string
+  /** The default room's page credential, which is the whole of a self-hosted deployment. */
+  readonly signerToken: string
 
-  constructor(private options: { port?: number; host?: string; token?: string; publicUrl?: string } = {}) {
+  constructor(private options: { port?: number; host?: string; token?: string; publicUrl?: string; rooms?: RoomResolver } = {}) {
     this.port = options.port ?? (Number(process.env.PORT) || 3456)
     // Hosted deployments set PORT and need every interface; local runs stay on loopback.
     this.host = options.host ?? process.env.HOST ?? (process.env.PORT ? '0.0.0.0' : '127.0.0.1')
     this.token = options.token ?? process.env.WALLET_TOKEN ?? randomBytes(16).toString('hex')
+    this.signerToken = roomToken(this.token, DEFAULT_ROOM, 'signer')
+    this.resolveRoom = options.rooms ?? signedRooms(this.token)
 
     this.app = express()
     this.app.use(cors())
@@ -99,7 +198,7 @@ export class WalletRelay {
 
     mount(this.app)
     this.httpServer = server
-    this.wss = new WebSocketServer({ server })
+    this.wss = new WebSocketServer({ server, maxPayload: MAX_PAYLOAD })
     this.wss.on('connection', (ws, req) => this.onConnection(ws, req.headers['user-agent'], req.headers.origin))
     this.heartbeat = setInterval(() => {
       for (const ws of this.wss?.clients ?? []) ws.ping()
@@ -120,7 +219,7 @@ export class WalletRelay {
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       try {
         this.httpServer = await this.listen(this.port)
-        this.wss = new WebSocketServer({ server: this.httpServer })
+        this.wss = new WebSocketServer({ server: this.httpServer, maxPayload: MAX_PAYLOAD })
         this.wss.on('connection', (ws, req) => this.onConnection(ws, req.headers['user-agent'], req.headers.origin))
         // Proxies in front of a hosted relay close idle sockets; keep them warm.
         this.heartbeat = setInterval(() => {
@@ -187,29 +286,59 @@ export class WalletRelay {
 
     const timer = setTimeout(() => ws.close(4001, 'handshake timeout'), HANDSHAKE_TIMEOUT)
 
-    ws.once('message', (raw: Buffer) => {
+    ws.once('message', async (raw: Buffer) => {
       clearTimeout(timer)
 
-      let hello: Hello
-      try {
-        hello = JSON.parse(raw.toString())
-      } catch {
+      const hello = parseFrame(raw) as Hello | null
+      if (!hello) {
         ws.close(4001, 'invalid handshake')
         return
       }
 
-      if (hello.token !== this.token || (hello.role !== 'signer' && hello.role !== 'requester')) {
+      // A peer may send its first request in the same read as the handshake. Resolving a
+      // room can yield, and a message emitted in that gap would reach no listener at all,
+      // so hold anything that arrives and replay it once the role's handler is attached.
+      const early: Buffer[] = []
+      const hold = (data: Buffer) => early.push(data)
+      ws.on('message', hold)
+
+      // `Hello` describes what a peer should send; nothing makes it. The token becomes a
+      // lookup key in a resolver we do not own, so check it here rather than trusting the
+      // shape — the page is plain JS and anything at all can open a socket.
+      const token = typeof hello.token === 'string' && hello.token.length <= MAX_TOKEN_LENGTH ? hello.token : null
+
+      let room: Room | null = null
+      if (token !== null && (hello.role === 'signer' || hello.role === 'requester')) {
+        try {
+          room = await this.resolveRoom(token, hello.role)
+        } catch (error) {
+          console.error(`[Wallet] Room lookup failed: ${(error as Error).message}`)
+        }
+      }
+
+      ws.off('message', hold)
+
+      // A resolver may go to storage, and the socket can be gone by the time it answers.
+      if (ws.readyState !== WebSocket.OPEN) return
+
+      if (!room) {
         console.error('[Wallet] Rejected connection: bad token or role')
         ws.close(4001, 'unauthorized')
         return
       }
 
+      if (this.roomSize(room) >= MAX_PER_ROOM) {
+        console.error(`[Wallet] Rejected connection: room already holds ${MAX_PER_ROOM} connections`)
+        ws.close(4008, 'room is full')
+        return
+      }
+
       if (hello.role === 'signer') {
-        this.signers.set(ws, { address: hello.address, url: hello.url, agent: userAgent })
+        this.signers.set(ws, { room, address: hello.address, url: hello.url, agent: userAgent })
         ws.on('message', (data: Buffer) => this.onSignerMessage(ws, data))
         ws.on('close', () => this.onSignerClose(ws))
       } else {
-        this.requesters.add(ws)
+        this.requesters.set(ws, room)
         ws.on('message', (data: Buffer) => this.onRequesterMessage(ws, data))
         ws.on('close', () => this.onRequesterClose(ws))
       }
@@ -217,20 +346,32 @@ export class WalletRelay {
       ws.on('error', () => ws.close())
       console.error(`[Wallet] ${hello.role} joined${hello.address ? ` as ${hello.address}` : ''}`)
       ws.send(JSON.stringify({ type: 'ready' }))
-      this.broadcastStatus()
+      this.broadcastStatus(room)
+
+      for (const data of early) {
+        if (hello.role === 'signer') this.onSignerMessage(ws, data)
+        else this.onRequesterMessage(ws, data)
+      }
     })
   }
 
-  private onRequesterMessage(requester: WebSocket, data: Buffer) {
-    let request: TransactionRequest
-    try {
-      request = JSON.parse(data.toString())
-    } catch {
-      return
-    }
+  /** Live connections in a room, both roles — what MAX_PER_ROOM bounds. */
+  private roomSize(room: Room): number {
+    let count = 0
+    for (const meta of this.signers.values()) if (meta.room === room) count++
+    for (const held of this.requesters.values()) if (held === room) count++
+    return count
+  }
 
-    // Prefer a page that has an account; fall back to any open page.
-    const open = [...this.signers.entries()].filter(([ws]) => ws.readyState === WebSocket.OPEN)
+  private onRequesterMessage(requester: WebSocket, data: Buffer) {
+    const request = parseFrame(data) as TransactionRequest | null
+    if (!request || typeof request.id !== 'string') return
+
+    // Only this requester's own room: another room's wallet must never be offered the
+    // transaction, nor learn that it exists. Prefer a page that has an account there;
+    // fall back to any open page in the room.
+    const room = this.requesters.get(requester)
+    const open = [...this.signers.entries()].filter(([ws, meta]) => meta.room === room && ws.readyState === WebSocket.OPEN)
     const signer = (open.find(([, meta]) => meta.address) ?? open[0])?.[0]
     if (!signer) {
       this.respond(requester, { id: request.id, success: false, error: 'No wallet connected' })
@@ -243,29 +384,34 @@ export class WalletRelay {
   }
 
   private onSignerMessage(signer: WebSocket, data: Buffer) {
-    let response: TransactionResponse
-    try {
-      response = JSON.parse(data.toString())
-    } catch {
-      return
-    }
+    const response = parseFrame(data) as TransactionResponse | null
+    if (!response) return
 
     // Update the signer's address when the page reports an account change.
     if ((response as unknown as { type?: string }).type === 'status') {
       const update = response as unknown as { address?: string; url?: string }
       const previous = this.signers.get(signer)
-      this.signers.set(signer, { address: update.address, url: update.url ?? previous?.url, agent: previous?.agent })
-      this.broadcastStatus()
+      if (!previous) return
+      this.signers.set(signer, {
+        room: previous.room,
+        address: update.address,
+        url: update.url ?? previous.url,
+        agent: previous.agent
+      })
+      this.broadcastStatus(previous.room)
       return
     }
 
+    // Request ids are chosen by the requester, so answering one must be reserved to the
+    // page it was actually handed to — otherwise a room could answer another's request.
     const route = this.routes.get(response.id)
-    if (!route) return
+    if (!route || route.signer !== signer) return
     this.routes.delete(response.id)
     this.respond(route.requester, response)
   }
 
   private onSignerClose(signer: WebSocket) {
+    const room = this.signers.get(signer)?.room
     this.signers.delete(signer)
     // Fail anything in flight instead of leaving the requester hanging until timeout.
     for (const [id, route] of this.routes) {
@@ -274,7 +420,7 @@ export class WalletRelay {
         this.respond(route.requester, { id, success: false, error: 'Wallet disconnected before responding' })
       }
     }
-    this.broadcastStatus()
+    if (room) this.broadcastStatus(room)
   }
 
   private onRequesterClose(requester: WebSocket) {
@@ -288,21 +434,22 @@ export class WalletRelay {
     if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(response))
   }
 
-  private broadcastStatus() {
-    const address = [...this.signers.values()].find((s) => s.address)?.address
-    const withAccount = [...this.signers.values()].filter((s) => s.address).length
-    const page = [...this.signers.values()].find((s) => s.url) ?? [...this.signers.values()][0]
+  private broadcastStatus(room: Room) {
+    const pages = [...this.signers.values()].filter((s) => s.room === room)
+    const address = pages.find((s) => s.address)?.address
+    const withAccount = pages.filter((s) => s.address).length
+    const page = pages.find((s) => s.url) ?? pages[0]
     const status: SignerStatus = {
       type: 'status',
       signers: withAccount,
-      pages: this.signers.size,
+      pages: pages.length,
       address,
       pageUrl: page?.url,
       pageAgent: page?.agent
     }
     const message = JSON.stringify(status)
-    for (const requester of this.requesters) {
-      if (requester.readyState === WebSocket.OPEN) requester.send(message)
+    for (const [requester, requesterRoom] of this.requesters) {
+      if (requesterRoom === room && requester.readyState === WebSocket.OPEN) requester.send(message)
     }
   }
 
@@ -315,16 +462,19 @@ export class WalletRelay {
    *
    * Names 127.0.0.1 rather than localhost on purpose — localhost resolves to ::1 first on
    * macOS, which would reach a process holding the wildcard port instead of ours.
+   *
+   * Defaults to the single-room case. With a `rooms` resolver there is a token per room,
+   * and the caller passes the one belonging to whoever is being sent this link.
    */
-  getUrl(): string {
+  getUrl(token: string = this.signerToken): string {
     const base = process.env.WALLET_PUBLIC_URL ?? (this.borrowedServer ? '/' : `http://127.0.0.1:${this.port}/`)
-    return `${base}#t=${this.token}`
+    return `${base}#t=${token}`
   }
 
   async stop(): Promise<void> {
     if (this.heartbeat) clearInterval(this.heartbeat)
     this.heartbeat = null
-    for (const ws of [...this.signers.keys(), ...this.requesters]) ws.close()
+    for (const ws of [...this.signers.keys(), ...this.requesters.keys()]) ws.close()
     await new Promise<void>((resolve) => (this.wss ? this.wss.close(() => resolve()) : resolve()))
 
     if (!this.borrowedServer) {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import ensTools from '../../src/tools/ens.js'
+import ensTools from '../../src/tools/read/ens.js'
 import { hasProviderRpc } from '../setup.js'
 
 describe('ENS Tools', () => {

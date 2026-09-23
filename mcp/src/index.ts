@@ -1,15 +1,15 @@
 #!/usr/bin/env node
 
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { WalletRelay } from 'web3-wallet-relay'
 import packageJson from '../package.json' with { type: 'json' }
 import { initializeClientManager, SUPPORTED_CHAINS } from './client.js'
+import { DEFAULT_IDENTITY } from './context.js'
 import { startHttpServer } from './http-server.js'
 import { attachLogServer } from './log.js'
-import { registerAllTools } from './tools/index.js'
+import { createMcpServer } from './mcp-server.js'
 import { parseCommandLineArgs } from './utils.js'
-import { getWalletClient } from './wallet-client.js'
+import { allWalletClients, configureWalletRelay, getWalletClient } from './wallet-client.js'
 
 // Parse configuration
 const config = parseCommandLineArgs()
@@ -42,12 +42,15 @@ ENVIRONMENT VARIABLES:
   WALLETCONNECT_PROJECT_ID      Alternative to --walletconnect-project-id
   CUSTOM_RPC                    Alternative to --custom-rpc
   MCP_HTTP_PORT                 Serve MCP over HTTP on this port instead of stdio
+  MCP_HOSTED                    Apply the hosted guards without the CLI (library use)
   MCP_TOKEN                     Bearer token required by the HTTP transport
   MCP_PUBLIC_URL                Public URL of this server, advertised in OAuth metadata
   UPSTASH_REDIS_REST_URL        Keep WalletConnect sessions in Redis, not on disk
   UPSTASH_REDIS_REST_TOKEN
   WALLET_SERVER_URL             URL of a hosted wallet relay (omit to run one locally)
-  WALLET_TOKEN                  Shared pairing token for the wallet relay
+  WALLET_TOKEN                  Secret the wallet relay signs its room tokens with
+  ANVIL_RPC_URL                 Node exposing debug_traceCall (default: 127.0.0.1:8545)
+  ANVIL_ALLOW_RESET             Let tracing re-fork that node, clearing its state
 
 SUPPORTED CHAINS:
   ${SUPPORTED_CHAINS.join(', ')}
@@ -92,12 +95,6 @@ if (config.customRpcUrls) {
 // Initialize client manager
 initializeClientManager(config)
 
-function createMcpServer() {
-  const server = new McpServer({ name: 'web3-tools-mcp', version: packageJson.version }, { capabilities: { logging: {} } })
-  registerAllTools(server)
-  return server
-}
-
 const httpMode = Boolean(process.env.MCP_HTTP_PORT)
 const httpPort = Number(process.env.MCP_HTTP_PORT)
 
@@ -114,7 +111,13 @@ const hostedRelay = httpMode
   ? new WalletRelay({ token: process.env.WALLET_TOKEN, publicUrl: process.env.MCP_PUBLIC_URL })
   : undefined
 
-const wallet = getWalletClient(hostedRelay ? { port: httpPort, token: hostedRelay.token } : undefined)
+// Hosted, the relay is this process's own, on the platform's port. Set before any client
+// is made, so every identity's client reaches that one rather than starting its own.
+if (hostedRelay) configureWalletRelay({ port: httpPort, token: hostedRelay.token })
+
+// Outside any tool call, so this is the shared identity — the only one a self-hosted
+// server ever has, and the one a hosted server uses before anybody has authenticated.
+const wallet = getWalletClient(DEFAULT_IDENTITY)
 
 // Hosted, the relay is attached to the HTTP server, so connect only once that is listening.
 const walletReady = httpMode
@@ -131,7 +134,7 @@ async function shutdown(reason: string) {
   if (shuttingDown) return
   shuttingDown = true
   console.error(`[MCP] Shutting down (${reason})`)
-  await wallet.stop().catch(() => {})
+  await Promise.all(allWalletClients().map((client) => client.stop().catch(() => {})))
   process.exit(0)
 }
 

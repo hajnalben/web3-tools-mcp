@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import advancedTools from '../../src/tools/advanced.js'
+import advancedTools from '../../src/tools/read/advanced.js'
 import { hasAnvil, hasProviderRpc } from '../setup.js'
 
 describe('Advanced Tools', () => {

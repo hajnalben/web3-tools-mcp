@@ -7,7 +7,7 @@ export function createTool<T extends z.ZodType>(
   title: string,
   description: string,
   schema: T,
-  handler: (args: z.infer<T>) => Promise<ToolResult>
+  handler: (args: z.infer<T>, identity: string) => Promise<ToolResult>
 ) {
   return {
     title,

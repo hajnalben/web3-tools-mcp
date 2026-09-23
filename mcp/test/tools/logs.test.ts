@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import logsTools from '../../src/tools/logs.js'
+import logsTools from '../../src/tools/read/logs.js'
 import { hasHypersync, hasProviderRpc } from '../setup.js'
 
 describe('Logs Tools', () => {

@@ -396,6 +396,11 @@ Then point the server at it with `WALLET_SERVER_URL` and the same `WALLET_TOKEN`
 `render.yaml` deploys it as-is. Anyone holding `WALLET_TOKEN` can send your browser a
 transaction to sign — treat it like a password, and always serve over HTTPS.
 
+The pairing link the server prints carries a different token, derived from that one, which
+can only answer signing requests and not make them. Sharing a pairing link is therefore not
+the same as sharing `WALLET_TOKEN` — but it still lets whoever has it act as your wallet
+page, so a signing request can reach them instead of you.
+
 Locally nothing changes: the server embeds the same relay.
 
 </details>

@@ -22,7 +22,7 @@ Then point the MCP server at it with `WALLET_SERVER_URL` and the same `WALLET_TO
 
 | Variable | |
 | --- | --- |
-| `WALLET_TOKEN` | Shared secret. Anyone holding it can send your browser a transaction to sign — treat it like a password, and serve over HTTPS. Generated per run if unset. |
+| `WALLET_TOKEN` | The MCP server's secret. Anyone holding it can send your browser a transaction to sign — treat it like a password, and serve over HTTPS. Generated per run if unset. The signing page gets a separate token derived from this one, which may only answer requests; that is what pairing links carry. |
 | `PORT` | Provided by most hosts. Set, the relay binds `0.0.0.0` and takes that one port; unset, it binds loopback and scans 3456-3460. |
 | `HOST` | Override the bind address. |
 | `WALLET_PUBLIC_URL` | The URL to print in pairing links, when it differs from the bind address. |

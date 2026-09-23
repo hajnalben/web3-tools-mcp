@@ -3,18 +3,23 @@ import { randomBytes } from 'node:crypto'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { LOCAL_PORT_ATTEMPTS, type TransactionRequest, type TransactionResponse, WalletRelay } from 'web3-wallet-relay'
+import { LOCAL_PORT_ATTEMPTS, roomToken, type TransactionRequest, type TransactionResponse, WalletRelay } from 'web3-wallet-relay'
 import { WebSocket } from 'ws'
+import { HOSTED } from './hosted.js'
 
 const REQUEST_TIMEOUT = 300_000
 
-/** Serving over HTTP means no desktop here: never try to open a browser, and never
- *  hand out a loopback URL as the place to open the signing page. */
-const HOSTED = Boolean(process.env.MCP_HTTP_PORT)
+/**
+ * How long a client with nothing in flight keeps its socket. A hosted server makes one per
+ * person who ever signed, and without this each would hold a relay connection for the life
+ * of the process. The next call reconnects.
+ */
+const IDLE_TIMEOUT = 10 * 60_000
 
-function pairingUrlFor(port: number, token: string): string {
+/** Always the signer token: this URL goes to a browser, which may not act as a requester. */
+function pairingUrlFor(port: number, secret: string, identity: string): string {
   const base = HOSTED ? (process.env.MCP_PUBLIC_URL ?? `http://localhost:${port}`) : `http://127.0.0.1:${port}`
-  return `${base.replace(/\/$/, '')}/#t=${token}`
+  return `${base.replace(/\/$/, '')}/#t=${roomToken(secret, identity, 'signer')}`
 }
 const SIGNER_WAIT_TIMEOUT = 30_000
 const CONNECT_ATTEMPTS = 8
@@ -85,13 +90,23 @@ export class WalletClient {
   private pageUrl: string | undefined
   private pageAgent: string | undefined
   private lastOpenedAt = 0
-  /** Instance field so tests can shorten the wait instead of sitting out the real one. */
+  private idleTimer: NodeJS.Timeout | null = null
+  /** Instance fields so tests can shorten the waits instead of sitting out the real ones. */
   private signerWaitTimeout = SIGNER_WAIT_TIMEOUT
+  private idleTimeout = IDLE_TIMEOUT
 
   private readonly remoteUrl = process.env.WALLET_SERVER_URL
   private readonly remoteToken = process.env.WALLET_TOKEN
 
-  constructor(private relayOptions: { port?: number; token?: string } = {}) {}
+  /**
+   * `identity` is the room this client works in. Everything below it — the socket's token,
+   * the pairing link it hands out — is signed for that room, so two identities on one relay
+   * cannot see each other's pages or transactions.
+   */
+  constructor(
+    private identity: string,
+    private relayOptions: { port?: number; token?: string } = {}
+  ) {}
 
   get isRemote(): boolean {
     return Boolean(this.remoteUrl)
@@ -124,8 +139,8 @@ export class WalletClient {
     // minute to come back.
     for (let attempt = 0; attempt < CONNECT_ATTEMPTS; attempt++) {
       try {
-        await this.openSocket(url, this.remoteToken)
-        this.pairingUrl = `${this.remoteUrl}#t=${this.remoteToken}`
+        await this.openSocket(url, roomToken(this.remoteToken, this.identity, 'requester'))
+        this.pairingUrl = `${this.remoteUrl}#t=${roomToken(this.remoteToken, this.identity, 'signer')}`
         return
       } catch (error) {
         lastError = error as Error
@@ -147,23 +162,24 @@ export class WalletClient {
    * the fix would be for the higher port to hand over when a lower one answers.
    */
   private async connectLocal(): Promise<void> {
-    const token = this.relayOptions.token ?? localToken()
+    const secret = this.relayOptions.token ?? localToken()
+    const requester = roomToken(secret, this.identity, 'requester')
     const ports = this.relayOptions.port ? [this.relayOptions.port] : LOCAL_PORTS
 
     for (const port of ports) {
       try {
-        await this.openSocket(`ws://127.0.0.1:${port}`, token)
-        this.pairingUrl = pairingUrlFor(port, token)
+        await this.openSocket(`ws://127.0.0.1:${port}`, requester)
+        this.pairingUrl = pairingUrlFor(port, secret, this.identity)
         return
       } catch {
         // Nothing on this port, or something that isn't our relay — keep looking.
       }
     }
 
-    this.relay = new WalletRelay({ port: ports[0], token })
+    this.relay = new WalletRelay({ port: ports[0], token: secret })
     await this.relay.start()
-    await this.openSocket(`ws://127.0.0.1:${this.relay.getPort()}`, token)
-    this.pairingUrl = this.relay.getUrl()
+    await this.openSocket(`ws://127.0.0.1:${this.relay.getPort()}`, requester)
+    this.pairingUrl = pairingUrlFor(this.relay.getPort(), secret, this.identity)
   }
 
   /**
@@ -198,6 +214,7 @@ export class WalletClient {
         clearTimeout(timer)
         ws.off('message', onHandshake)
         this.ws = ws
+        this.rearmIdle()
         resolve()
       }
 
@@ -249,9 +266,25 @@ export class WalletClient {
     const pending = this.pending.get(message.id)
     if (!pending) return
     this.pending.delete(message.id)
+    this.rearmIdle()
 
     if (message.success) pending.resolve(message.result)
     else pending.reject(new Error(message.error || 'Transaction failed'))
+  }
+
+  /**
+   * Drop the socket, and this client, once nothing has needed it for a while. The owner of
+   * a local relay is exempt: it is the one that has to stop that relay at shutdown.
+   */
+  private rearmIdle() {
+    if (this.idleTimer) clearTimeout(this.idleTimer)
+    if (this.relay) return
+    this.idleTimer = setTimeout(() => {
+      if (this.pending.size > 0) return this.rearmIdle()
+      this.ws?.close()
+      if (clients.get(this.identity) === this) clients.delete(this.identity)
+    }, this.idleTimeout)
+    this.idleTimer.unref()
   }
 
   /** Wait for a wallet page to connect, opening the browser first when running locally. */
@@ -291,10 +324,14 @@ export class WalletClient {
 
     return new Promise((resolve, reject) => {
       this.pending.set(request.id, { resolve, reject })
+      this.rearmIdle()
       ws.send(JSON.stringify(request))
 
       setTimeout(() => {
-        if (this.pending.delete(request.id)) reject(new Error('Transaction request timed out'))
+        if (this.pending.delete(request.id)) {
+          this.rearmIdle()
+          reject(new Error('Transaction request timed out'))
+        }
       }, REQUEST_TIMEOUT)
     })
   }
@@ -318,8 +355,11 @@ export class WalletClient {
    */
   getUrl(): string {
     if (this.pairingUrl) return this.pairingUrl
-    if (this.remoteUrl) return `${this.remoteUrl}#t=${this.remoteToken ?? ''}`
-    return `http://127.0.0.1:${LOCAL_PORTS[0]}/#t=${this.relayOptions.token ?? localToken()}`
+    if (this.remoteUrl) {
+      const token = this.remoteToken ? roomToken(this.remoteToken, this.identity, 'signer') : ''
+      return `${this.remoteUrl}#t=${token}`
+    }
+    return pairingUrlFor(LOCAL_PORTS[0], this.relayOptions.token ?? localToken(), this.identity)
   }
 
   /** A relay we do not own, or a server with no desktop, has no browser for us to open. */
@@ -388,15 +428,44 @@ export class WalletClient {
   }
 
   async stop(): Promise<void> {
+    if (this.idleTimer) clearTimeout(this.idleTimer)
     this.ws?.close()
     await this.relay?.stop()
     this.relay = null
   }
 }
 
-let client: WalletClient | null = null
+const clients = new Map<string, WalletClient>()
 
-export function getWalletClient(relayOptions?: { port?: number; token?: string }): WalletClient {
-  if (!client) client = new WalletClient(relayOptions)
+let relayOptions: { port?: number; token?: string } = {}
+
+/**
+ * Where the relay is, for every client this process makes.
+ *
+ * A property of the deployment rather than of any one person: a hosted server runs the
+ * relay on its own port with its own secret, and each identity's client has to reach that
+ * one. Set it before anybody signs — a client that cannot find a relay starts its own,
+ * which then has nobody in it.
+ */
+export function configureWalletRelay(options: { port?: number; token?: string }): void {
+  relayOptions = options
+}
+
+/**
+ * One client per identity, because everything it holds is that person's: the socket, the
+ * in-flight requests, and which page is open with which account. A single-user server has
+ * exactly one, which is every self-hosted run.
+ */
+export function getWalletClient(identity: string): WalletClient {
+  let client = clients.get(identity)
+  if (!client) {
+    client = new WalletClient(identity, relayOptions)
+    clients.set(identity, client)
+  }
   return client
+}
+
+/** Every live client, for shutdown — callers outside a tool call have no identity of their own. */
+export function allWalletClients(): WalletClient[] {
+  return [...clients.values()]
 }

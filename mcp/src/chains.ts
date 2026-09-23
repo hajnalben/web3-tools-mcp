@@ -14,6 +14,7 @@ import {
   unichain,
   zksync
 } from 'viem/chains'
+import { HOSTED } from './hosted.js'
 
 /**
  * Every chain this server knows, in one table. Adding one here is the whole change: the
@@ -141,5 +142,16 @@ export type ChainName = keyof typeof TABLE
 // literal entry would otherwise lose the fields that not every chain sets.
 export const CHAINS: Record<ChainName, ChainInfo> = TABLE
 
-/** Tuple rather than array, because `z.enum` needs a non-empty literal list. */
-export const SUPPORTED_CHAINS = Object.keys(CHAINS) as [ChainName, ...ChainName[]]
+/**
+ * Chains the tools will accept.
+ *
+ * `localhost` is dropped when hosted. It resolves to the machine running the server, so on
+ * a shared host it is not the caller's dev node — it is a way to aim requests at whatever
+ * that host has listening on its own loopback.
+ *
+ * Tuple rather than array, because `z.enum` needs a non-empty literal list.
+ */
+export const SUPPORTED_CHAINS = (HOSTED ? Object.keys(CHAINS).filter((name) => name !== 'localhost') : Object.keys(CHAINS)) as [
+  ChainName,
+  ...ChainName[]
+]

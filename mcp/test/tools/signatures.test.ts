@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import signatureTools from '../../src/tools/signatures.js'
+import signatureTools from '../../src/tools/read/signatures.js'
 
 describe('Signature Tools', () => {
   describe('get_function_signature', () => {

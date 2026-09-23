@@ -1,9 +1,9 @@
 import { type Address, isAddress, namehash } from 'viem'
 import { normalize } from 'viem/ens'
 import { z } from 'zod'
-import { getClientManager, SUPPORTED_CHAINS } from '../client.js'
-import type { ChainName } from '../types.js'
-import { createTool, formatResponse } from '../utils.js'
+import { getClientManager, SUPPORTED_CHAINS } from '../../client.js'
+import type { ChainName } from '../../types.js'
+import { createTool, formatResponse } from '../../utils.js'
 
 // Base ENS Contract Addresses
 const BASE_ENS_CONTRACTS = {

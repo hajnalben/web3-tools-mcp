@@ -44,7 +44,6 @@ export class ClientManager {
   getRpcUrl(chainName: ChainName): string {
     return getRpcUrl(chainName, this.config)
   }
-
   getChainId(chainName: ChainName): number {
     return CHAINS[chainName].chain.id
   }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import contractTools from '../../src/tools/contract.js'
+import contractTools from '../../src/tools/read/contract.js'
 import { hasProviderRpc } from '../setup.js'
 
 describe('Contract Tools', () => {

@@ -1,8 +1,16 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
-import { beforeAll, describe, expect, it } from 'vitest'
-import { startHttpServer } from '../src/http-server.js'
-import { pkce } from '../src/oauth.js'
+import type { OAuthClientInformationFull } from '@modelcontextprotocol/sdk/shared/auth.js'
+import type { Response } from 'express'
+import { beforeAll, describe, expect, it, vi } from 'vitest'
+import { DEFAULT_IDENTITY, identityFrom } from '../src/context.js'
+import { type Login, OAuthProvider, pkce } from '../src/oauth.js'
 import { registerAllTools } from '../src/tools/index.js'
+
+// The hosted flag is read when the package loads, and the setup file has loaded it
+// already — so set it and load the server afresh.
+process.env.MCP_HOSTED = '1'
+vi.resetModules()
+const { startHttpServer } = await import('../src/http-server.js')
 
 const TOKEN = 'oauth-test-token'
 const PORT = 4300
@@ -166,5 +174,97 @@ describe('OAuth for clients that cannot send a header', () => {
       body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' })
     })
     expect(res.status).toBe(200)
+  })
+})
+
+/**
+ * A host serving several people supplies its own login. What matters here is that whoever it
+ * names survives all the way to the token the tools read their identity from — if it did not,
+ * every tenant would quietly collapse back onto the shared identity.
+ */
+describe('a login that names a person', () => {
+  const CLIENT = { client_id: 'multi-tenant-client' } as OAuthClientInformationFull
+
+  function fakeResponse(form: Record<string, string>) {
+    const sent = { html: '', location: '', status: 200 }
+    const res = {
+      req: { method: form.submit ? 'POST' : 'GET', query: {}, body: form },
+      status(code: number) {
+        sent.status = code
+        return res
+      },
+      setHeader() {
+        return res
+      },
+      send(html: string) {
+        sent.html = html
+      },
+      redirect(url: string) {
+        sent.location = url
+      }
+    }
+    return { res: res as unknown as Response, sent }
+  }
+
+  async function codeFrom(provider: OAuthProvider, form: Record<string, string>): Promise<string> {
+    const { res, sent } = fakeResponse(form)
+    await provider.authorize(CLIENT, { codeChallenge: 'challenge', redirectUri: 'http://localhost:9999/cb', scopes: [] }, res)
+    return new URL(sent.location).searchParams.get('code') ?? ''
+  }
+
+  const login = (address?: string): Login => ({
+    owns: ['secret'],
+    page: (hidden) => `<form>${hidden}</form>`,
+    identify: async (form) => (form.secret === 'open' ? { address } : { error: 'no' })
+  })
+
+  it('carries the address from the login into the issued token', async () => {
+    const provider = new OAuthProvider(login('0xAbC'))
+    const code = await codeFrom(provider, { submit: '1', secret: 'open' })
+    const tokens = await provider.exchangeAuthorizationCode(CLIENT, code)
+
+    const auth = await provider.verifyAccessToken(tokens.access_token)
+    expect(auth.extra?.address).toBe('0xAbC')
+    expect(identityFrom(auth)).toBe('0xAbC')
+  })
+
+  it('keeps the person across a refresh, which proves possession and not identity', async () => {
+    const provider = new OAuthProvider(login('0xAbC'))
+    const code = await codeFrom(provider, { submit: '1', secret: 'open' })
+    const first = await provider.exchangeAuthorizationCode(CLIENT, code)
+
+    const refreshed = await provider.exchangeRefreshToken(CLIENT, first.refresh_token as string)
+    expect(identityFrom(await provider.verifyAccessToken(refreshed.access_token))).toBe('0xAbC')
+  })
+
+  it('falls back to the shared identity when the login names nobody', async () => {
+    const provider = new OAuthProvider(login(undefined))
+    const code = await codeFrom(provider, { submit: '1', secret: 'open' })
+    const tokens = await provider.exchangeAuthorizationCode(CLIENT, code)
+
+    expect(identityFrom(await provider.verifyAccessToken(tokens.access_token))).toBe(DEFAULT_IDENTITY)
+  })
+
+  it('never echoes a field the login owns back into the page', async () => {
+    const provider = new OAuthProvider(login('0xAbC'))
+    const { res, sent } = fakeResponse({ secret: 'hunter2', state: 'xyz' })
+    await provider.authorize(CLIENT, { codeChallenge: 'c', redirectUri: 'http://localhost:9999/cb', scopes: [] }, res)
+
+    expect(sent.html).toContain('xyz')
+    expect(sent.html).not.toContain('hunter2')
+  })
+
+  it('refuses a login that rejects the form', async () => {
+    const provider = new OAuthProvider(login('0xAbC'))
+    const { res, sent } = fakeResponse({ submit: '1', secret: 'wrong' })
+    await provider.authorize(CLIENT, { codeChallenge: 'c', redirectUri: 'http://localhost:9999/cb', scopes: [] }, res)
+
+    expect(sent.status).toBe(401)
+    expect(sent.location).toBe('')
+  })
+
+  it('issues no identity for a static token, which authenticates the deployment', async () => {
+    const provider = new OAuthProvider(login('0xAbC'), 'static-secret')
+    expect(identityFrom(await provider.verifyAccessToken('static-secret'))).toBe(DEFAULT_IDENTITY)
   })
 })

@@ -691,6 +691,19 @@ function renderSimulation(simulation, explorer) {
     </div>`
 }
 
+/**
+ * Exact native amount from the transaction's own value, in wei.
+ *
+ * Never taken from the preview: that is supplied by whoever sent the request, and the
+ * amount is the one field a hostile requester would most want to misstate.
+ */
+function nativeAmount(value) {
+  if (typeof value !== 'string' || !/^0x[0-9a-fA-F]+$/.test(value)) return String(value)
+  const wei = BigInt(value)
+  const fraction = (wei % 10n ** 18n).toString().padStart(18, '0').replace(/0+$/, '')
+  return fraction ? `${wei / 10n ** 18n}.${fraction}` : `${wei / 10n ** 18n}`
+}
+
 function renderTransactionPreview(request) {
   const details = document.getElementById('txDetails')
   const approveBtn = document.getElementById('approveBtn')
@@ -720,7 +733,7 @@ function renderTransactionPreview(request) {
     if (decoded?.proxy) html += paramHtml('Implementation', addressLink(decoded.proxy, undefined, explorer))
 
     if (data.value && data.value !== '0x0') {
-      html += param('Value', `${preview?.valueFormatted ?? parseInt(data.value, 16) / 1e18} ${state.chainName || 'native'}`)
+      html += param('Value', `${nativeAmount(data.value)} ${state.chainName || 'native'}`)
     }
 
     if (decoded) {
@@ -730,8 +743,13 @@ function renderTransactionPreview(request) {
           ? paramHtml(field.name, addressLink(field.address, field.label, explorer), warning)
           : param(field.name, field.value, warning)
       }
-    } else if (data.data && data.data !== '0x') {
-      html += param('Data', `${data.data.substring(0, 66)}${data.data.length > 66 ? '…' : ''}`)
+    }
+
+    // Shown even when decoded: the decoding above describes the call, but it arrives with
+    // the request rather than being derived here, so the bytes that will actually be signed
+    // stay on screen beside it. The first four bytes are the selector.
+    if (data.data && data.data !== '0x') {
+      html += param('Calldata', `${data.data.substring(0, 66)}${data.data.length > 66 ? '…' : ''}`)
     }
 
     html += renderSimulation(preview?.simulation, explorer)

@@ -2,6 +2,7 @@ import { mkdirSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { getClientManager } from './client.js'
+import { DEFAULT_IDENTITY } from './context.js'
 import { getKeyValueStorage } from './kv-storage.js'
 import { log } from './log.js'
 import type { ChainName } from './types.js'
@@ -28,6 +29,24 @@ interface Session {
   peer?: string
 }
 
+/** Sessions do not record who paired them, so the mapping is kept alongside in the same store. */
+const BINDINGS_KEY = 'web3-tools-mcp:session-identities'
+
+/**
+ * The sessions an identity may sign with.
+ *
+ * Matched by the binding recorded when the session was approved, never by the accounts it
+ * reports — a wallet states its own account list, so trusting that would let a peer claim
+ * someone else's address and be handed their signing requests.
+ *
+ * An unbound session is one paired before bindings existed. It counts only for the shared
+ * identity, which is a server with a single user; under a real identity it belongs to
+ * nobody rather than to whoever asks first.
+ */
+export function ownedSessions<T extends { topic: string }>(live: T[], bindings: Record<string, string>, identity: string): T[] {
+  return live.filter((s) => bindings[s.topic] === identity || (identity === DEFAULT_IDENTITY && !bindings[s.topic]))
+}
+
 const METHODS = ['eth_sendTransaction', 'personal_sign', 'eth_signTypedData_v4']
 const EVENTS = ['chainChanged', 'accountsChanged']
 const APPROVAL_TIMEOUT = 300_000
@@ -37,9 +56,7 @@ const APPROVAL_TIMEOUT = 300_000
  * a local one is only reachable from the machine it runs on, and says so.
  */
 function serverUrl(): string {
-  if (process.env.MCP_PUBLIC_URL) return process.env.MCP_PUBLIC_URL.replace(/\/$/, '')
-  if (process.env.MCP_HTTP_PORT) return `http://localhost:${process.env.MCP_HTTP_PORT}`
-  return 'http://localhost'
+  return process.env.MCP_PUBLIC_URL?.replace(/\/$/, '') ?? 'http://localhost'
 }
 
 function storePath(): string {
@@ -54,6 +71,8 @@ export class PhoneSigner {
   private pairing: { uri: string; expiresAt: number } | undefined
   /** Label shown in the wallet; whoever is driving this server says who they are. */
   private agent: string | undefined
+  /** The last edit of the bindings key; the next one queues behind it. */
+  private bindingsEdit: Promise<unknown> = Promise.resolve()
 
   constructor(private projectId: string) {}
 
@@ -87,26 +106,63 @@ export class PhoneSigner {
     return this.starting
   }
 
-  /** The most recent still-valid session, if the phone is already paired. */
-  async session(): Promise<Session | undefined> {
-    await this.start()
-    const sessions = this.client?.session.getAll() ?? []
-    const live = sessions.filter((s) => s.expiry * 1000 > Date.now())
-    const session = live[live.length - 1]
-    if (!session) return undefined
-
-    const accounts = session.namespaces.eip155?.accounts ?? []
-    return {
-      topic: session.topic,
-      // "eip155:8453:0xabc…" → address / chain id
-      accounts: [...new Set(accounts.map((a) => a.split(':')[2] as string))],
-      chains: [...new Set(accounts.map((a) => Number(a.split(':')[1])))],
-      peer: session.peer?.metadata?.name
-    }
+  /**
+   * Who each session belongs to, kept in the client's own store so it lands in the file or
+   * in Redis exactly as the sessions themselves do.
+   */
+  private async bindings(): Promise<Record<string, string>> {
+    return (await this.client?.core.storage.getItem<Record<string, string>>(BINDINGS_KEY)) ?? {}
   }
 
-  async isPaired(): Promise<boolean> {
-    return Boolean(await this.session())
+  /**
+   * All bindings live under one key, so an edit is a read-modify-write — and two approvals
+   * settling together would each read the same map and the second would erase the first.
+   * Edits queue behind each other instead.
+   *
+   * ponytail: serialised per process only. Several server processes on one Redis still
+   * race; one key per topic would end that.
+   */
+  private updateBindings(edit: (bindings: Record<string, string>) => void): Promise<void> {
+    const next = this.bindingsEdit.then(async () => {
+      const bindings = await this.bindings()
+      edit(bindings)
+      await this.client?.core.storage.setItem(BINDINGS_KEY, bindings)
+    })
+    this.bindingsEdit = next.catch(() => {})
+    return next
+  }
+
+  private bind(topic: string, identity: string): Promise<void> {
+    return this.updateBindings((bindings) => {
+      bindings[topic] = identity
+    })
+  }
+
+  /** Every session this identity owns, live or not — what disconnecting should sweep. */
+  private async owned(identity: string) {
+    await this.start()
+    return ownedSessions(this.client?.session.getAll() ?? [], await this.bindings(), identity)
+  }
+
+  /**
+   * One of this identity's paired wallets.
+   *
+   * `account` picks between them when more than one is paired; without it the most recent
+   * wins, which is the only one most people have. Selecting by address is safe here in a
+   * way that *identifying* by address would not be: the candidates are already narrowed to
+   * sessions this identity was bound to when they were approved, so a wallet claiming an
+   * address it does not hold can only reach its own owner.
+   */
+  async session(identity: string = DEFAULT_IDENTITY, account?: string): Promise<Session | undefined> {
+    const paired = await this.sessions(identity)
+    if (!account) return paired[paired.length - 1]
+
+    const wanted = account.toLowerCase()
+    return paired.find((session) => session.accounts.some((a) => a.toLowerCase() === wanted))
+  }
+
+  async isPaired(identity?: string): Promise<boolean> {
+    return Boolean(await this.session(identity))
   }
 
   /**
@@ -128,7 +184,7 @@ export class PhoneSigner {
     if (agent && !this.client) this.agent = agent
   }
 
-  async pair(chains: ChainName[]): Promise<string> {
+  async pair(chains: ChainName[], identity: string = DEFAULT_IDENTITY): Promise<string> {
     await this.start()
     log('info', 'WalletConnect', `Pairing as "${this.agent ?? 'default name'}" for ${chains.length} chain(s)`)
     if (!this.client) throw new Error('WalletConnect failed to start')
@@ -146,16 +202,27 @@ export class PhoneSigner {
     this.pairing = { uri, expiresAt: Date.now() + APPROVAL_TIMEOUT }
 
     approval()
-      .then((session) => log('info', 'WalletConnect', `Paired with ${session.peer?.metadata?.name ?? 'a wallet'}`))
+      .then(async (session) => {
+        // Recorded as the session settles: whoever asked for this pairing owns it.
+        await this.bind(session.topic, identity)
+        log('info', 'WalletConnect', `Paired with ${session.peer?.metadata?.name ?? 'a wallet'}`)
+      })
       .catch((error) => log('warning', 'WalletConnect', `Pairing was not completed: ${error.message}`))
 
     return uri
   }
 
-  /** Send a request to the paired wallet. Throws if the chain is outside the session. */
-  async request(chain: ChainName, method: string, params: unknown[]): Promise<unknown> {
-    const session = await this.session()
-    if (!session || !this.client) throw new Error('No phone wallet paired')
+  /** Send a request to one of this identity's wallets. Throws if the chain is outside the session. */
+  async request(
+    chain: ChainName,
+    method: string,
+    params: unknown[],
+    target: { identity?: string; account?: string } = {}
+  ): Promise<unknown> {
+    const session = await this.session(target.identity, target.account)
+    if (!session || !this.client) {
+      throw new Error(target.account ? `No phone wallet paired for account ${target.account}` : 'No phone wallet paired')
+    }
 
     const chainId = getClientManager().getChainId(chain)
     if (!session.chains.includes(chainId)) {
@@ -185,32 +252,56 @@ export class PhoneSigner {
     }
   }
 
-  /** Every live session, not just the one that would be used for signing. */
-  async sessions(): Promise<Session[]> {
-    await this.start()
-    return (this.client?.session.getAll() ?? []).map((session) => ({
-      topic: session.topic,
-      accounts: [...new Set((session.namespaces.eip155?.accounts ?? []).map((a) => a.split(':')[2] as string))],
-      chains: [...new Set((session.namespaces.eip155?.accounts ?? []).map((a) => Number(a.split(':')[1])))],
-      peer: session.peer?.metadata?.name
-    }))
+  /** Every wallet this identity can currently sign with, oldest pairing first. */
+  async sessions(identity: string = DEFAULT_IDENTITY): Promise<Session[]> {
+    const live = (await this.owned(identity)).filter((session) => session.expiry * 1000 > Date.now())
+    return live.map((session) => {
+      // "eip155:8453:0xabc…" → address / chain id
+      const accounts = session.namespaces.eip155?.accounts ?? []
+      return {
+        topic: session.topic,
+        accounts: [...new Set(accounts.map((a) => a.split(':')[2] as string))],
+        chains: [...new Set(accounts.map((a) => Number(a.split(':')[1])))],
+        peer: session.peer?.metadata?.name
+      }
+    })
   }
 
   /**
-   * Disconnect everything: sessions, and the pairings underneath them. Each pairing
-   * attempt leaves one behind whether or not a wallet ever approved it, so they
-   * accumulate quietly in the store.
+   * Disconnect one of this identity's wallets, or all of them when no account is named.
+   *
+   * Pairings underneath are swept only once no session is left at all. Each pairing attempt
+   * leaves one behind whether or not a wallet ever approved it, so they accumulate quietly —
+   * but a pairing does not record who made it, so dropping them while anyone still has a
+   * session could take somebody else's with it.
    */
-  async disconnectAll(): Promise<{ sessions: number; pairings: number }> {
+  async disconnect(identity: string = DEFAULT_IDENTITY, account?: string): Promise<{ sessions: number; pairings: number }> {
     await this.start()
     if (!this.client) return { sessions: 0, pairings: 0 }
 
-    const sessions = this.client.session.getAll()
-    for (const session of sessions) {
+    let topics: Set<string>
+    if (account) {
+      // Same rule that picks a wallet to sign with, so you can drop exactly what you chose.
+      const match = await this.session(identity, account)
+      if (!match) throw new Error(`No paired wallet holds ${account}`)
+      topics = new Set([match.topic])
+    } else {
+      // Expired sessions included: they are still this identity's to clean up.
+      topics = new Set((await this.owned(identity)).map((session) => session.topic))
+    }
+
+    for (const topic of topics) {
       await this.client
-        .disconnect({ topic: session.topic, reason: { code: 6000, message: 'User disconnected' } })
+        .disconnect({ topic, reason: { code: 6000, message: 'User disconnected' } })
         .catch((error) => log('warning', 'WalletConnect', `Could not disconnect a session: ${error.message}`))
     }
+
+    await this.updateBindings((bindings) => {
+      for (const topic of topics) delete bindings[topic]
+    })
+
+    const remaining = this.client.session.getAll().length
+    if (remaining > 0) return { sessions: topics.size, pairings: 0 }
 
     const pairings = this.client.core.pairing.getPairings()
     for (const pairing of pairings) {
@@ -219,11 +310,7 @@ export class PhoneSigner {
         .catch((error) => log('warning', 'WalletConnect', `Could not drop a pairing: ${error.message}`))
     }
 
-    return { sessions: sessions.length, pairings: pairings.length }
-  }
-
-  async unpair(): Promise<void> {
-    await this.disconnectAll()
+    return { sessions: topics.size, pairings: pairings.length }
   }
 }
 

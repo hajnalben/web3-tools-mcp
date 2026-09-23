@@ -1,7 +1,7 @@
 import { fileURLToPath } from 'node:url'
 import { config } from 'dotenv'
 import { beforeAll } from 'vitest'
-import { isAnvilInstalled } from '../src/anvil.js'
+import { isDebugNodeAvailable } from '../src/anvil.js'
 import { initializeClientManager } from '../src/client.js'
 
 // One .env for the whole repo; vitest runs from this package, so resolve it from here.
@@ -17,7 +17,7 @@ config({ path: fileURLToPath(new URL('../../.env', import.meta.url)), quiet: tru
  */
 export const hasProviderRpc = Boolean(process.env.ALCHEMY_API_KEY || process.env.INFURA_API_KEY || process.env.CUSTOM_RPC)
 export const hasHypersync = Boolean(process.env.HYPERSYNC_API_KEY)
-export const hasAnvil = await isAnvilInstalled()
+export const hasAnvil = await isDebugNodeAvailable()
 
 beforeAll(() => {
   initializeClientManager({

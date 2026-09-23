@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import contractInfoTools from '../../src/tools/contract-info.js'
+import contractInfoTools from '../../src/tools/read/contract-info.js'
 
 const USDC_ADDRESS = '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48'
 const CHAIN = 'mainnet'

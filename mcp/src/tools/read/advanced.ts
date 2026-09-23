@@ -1,9 +1,9 @@
 import { type Address, decodeAbiParameters, isAddress, parseAbiParameters } from 'viem'
 import { z } from 'zod'
-import { isAnvilInstalled, simulateCallWithTrace, traceTransactionWithAnvil } from '../anvil.js'
-import { getClientManager, SUPPORTED_CHAINS } from '../client.js'
-import type { ChainName } from '../types.js'
-import { createTool, formatResponse, summarizeTrace } from '../utils.js'
+import { isDebugNodeAvailable, simulateCallWithTrace, traceTransactionWithAnvil } from '../../anvil.js'
+import { getClientManager, SUPPORTED_CHAINS } from '../../client.js'
+import type { ChainName } from '../../types.js'
+import { createTool, formatResponse, summarizeTrace } from '../../utils.js'
 
 export default {
   get_storage_at: createTool(
@@ -155,7 +155,9 @@ export default {
       useAnvil: z
         .boolean()
         .optional()
-        .describe('Force using Anvil for tracing (requires Foundry installed). Auto-used as fallback when RPC tracing fails.')
+        .describe(
+          'Force tracing through the debug node (ANVIL_RPC_URL). Used automatically as a fallback when the RPC cannot trace.'
+        )
         .default(false),
       summarize: z
         .boolean()
@@ -213,14 +215,14 @@ export default {
         (traceResult && typeof traceResult === 'object' && 'rpcError' in traceResult) ||
         args.useAnvil
       ) {
-        const anvilAvailable = await isAnvilInstalled()
+        const anvilAvailable = await isDebugNodeAvailable()
         if (anvilAvailable) {
           usedAnvil = true // Mark as used before attempting (even if it fails)
           try {
             const forkUrl = clientManager.getRpcUrl(args.chain as ChainName)
             const blockNumber = transaction.blockNumber ?? 0n
 
-            traceResult = await traceTransactionWithAnvil(forkUrl, args.transactionHash, blockNumber, tracer, args.chain)
+            traceResult = await traceTransactionWithAnvil(forkUrl, args.transactionHash, blockNumber, tracer)
           } catch (anvilError) {
             // Anvil tracing also failed
             traceResult = {
@@ -235,7 +237,7 @@ export default {
           // Anvil not available and RPC failed
           traceResult = {
             error:
-              'Tracing not available. Install Foundry (anvil) for local tracing: https://book.getfoundry.sh/getting-started/installation',
+              'Tracing not available. Point ANVIL_RPC_URL at a node exposing debug_traceCall — a local Anvil on 127.0.0.1:8545 is picked up automatically.',
             rpcError:
               traceResult && typeof traceResult === 'object' && 'rpcError' in traceResult
                 ? (traceResult as { rpcError: string }).rpcError
@@ -299,7 +301,7 @@ export default {
 
   debug_call: createTool(
     'Debug Contract Call',
-    'Simulate a contract call with full trace output. Requires Foundry (anvil) installed. Useful for debugging reverts and understanding call execution.',
+    'Simulate a contract call with full trace output. Needs a node exposing debug_traceCall (a local Anvil, or ANVIL_RPC_URL). Useful for debugging reverts and understanding call execution.',
     z.object({
       chain: z.enum(SUPPORTED_CHAINS).describe('The blockchain network to fork'),
       to: z.string().describe('Contract address to call'),
@@ -328,9 +330,9 @@ export default {
     }),
     async (args) => {
       // Check if Anvil is installed
-      const anvilAvailable = await isAnvilInstalled()
+      const anvilAvailable = await isDebugNodeAvailable()
       if (!anvilAvailable) {
-        throw new Error('Anvil is not installed. Please install Foundry: https://book.getfoundry.sh/getting-started/installation')
+        throw new Error('No tracing node reachable. Run a local Anvil, or set ANVIL_RPC_URL to a node exposing debug_traceCall.')
       }
 
       const clientManager = getClientManager()
