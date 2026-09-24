@@ -5,24 +5,20 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 import cors from 'cors'
 import express from 'express'
 import { WebSocket, WebSocketServer } from 'ws'
+import type { TransactionRequest, TransactionResponse } from './protocol.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
-export interface TransactionRequest {
-  id: string
-  type: 'send_transaction' | 'sign_message' | 'sign_typed_data'
-  chain: string
-  data: unknown
-  /** Decoded + simulated preview, forwarded to the signer untouched. */
-  preview?: unknown
-}
-
-export interface TransactionResponse {
-  id: string
-  success: boolean
-  result?: unknown
-  error?: string
-}
+// Defined next door so the signing page can be checked against the same shapes, and
+// re-exported so the package's consumers see no difference.
+export type {
+  ReadyMessage,
+  SendTransactionData,
+  SignMessageData,
+  TransactionRequest,
+  TransactionResponse,
+  TxPreview
+} from './protocol.js'
 
 export interface SignerStatus {
   type: 'status'

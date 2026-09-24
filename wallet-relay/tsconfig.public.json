@@ -1,0 +1,27 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+
+    // Deliberately not `strict`. The prize here is the wire contract with the MCP server and
+    // the module graph between these files — not proving that every getElementById returned
+    // something. Turning on strictNullChecks against a page this DOM-heavy would bury the
+    // errors that matter under hundreds that do not, and the usual answer to that is a
+    // scattering of `!` that asserts away the checking rather than doing any.
+    "strict": false,
+
+    // These two are the ones that pay: an import that does not resolve, a name that does not
+    // exist, an export left behind by a refactor.
+    "noUnusedLocals": true,
+    "noUnusedParameters": false
+  },
+  // Served exactly as written, so it is checked rather than compiled.
+  "include": ["public/**/*.js", "types/**/*.d.ts"],
+  "exclude": ["public/vendor"]
+}

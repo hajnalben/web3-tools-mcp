@@ -13,7 +13,7 @@
   "scripts": {
     "build": "npm run build -w web3-wallet-relay && npm run build -w web3-tools-mcp",
     "test": "npm test -w web3-tools-mcp",
-    "typecheck": "npm run typecheck -w web3-tools-mcp",
+    "typecheck": "npm run typecheck -w web3-tools-mcp && npm run typecheck -w web3-wallet-relay",
     "lint": "biome check",
     "format": "biome check --write",
     "start": "npm start -w web3-tools-mcp",

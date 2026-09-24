@@ -6,7 +6,11 @@
  * overwrote the first and the first was never answered at all — the agent waited on a
  * signature nobody could see. Anything here can be tested without a browser.
  */
+/**
+ * @typedef {import('../src/protocol.js').TransactionRequest} TransactionRequest
+ */
 export function requestQueue() {
+  /** @type {TransactionRequest[]} */
   let items = []
 
   return {
@@ -17,6 +21,7 @@ export function requestQueue() {
       return items.length
     },
 
+    /** @param {TransactionRequest} request */
     add(request) {
       items = [...items, request]
       return items
@@ -29,6 +34,7 @@ export function requestQueue() {
      * wallet dialog that takes as long as it takes, and a second click in the meantime would
      * otherwise send the same transaction twice. A request already claimed returns null.
      */
+    /** @param {string} id */
     claim(id) {
       const found = items.find((request) => request.id === id)
       if (!found) return null

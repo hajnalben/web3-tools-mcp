@@ -28,7 +28,8 @@
     "prepare": "npm run build",
     "start": "node dist/relay.js",
     "prepack": "cp ../LICENSE .",
-    "vendor:ui": "node scripts/vendor-ui.mjs"
+    "vendor:ui": "node scripts/vendor-ui.mjs",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.public.json"
   },
   "keywords": [
     "ethereum",

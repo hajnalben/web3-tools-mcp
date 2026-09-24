@@ -26,7 +26,9 @@ for (const [pkg, file] of [
   const root = entry.slice(0, entry.lastIndexOf(marker) + marker.length)
   const name = file.split('/').pop()
   // The maps are not published alongside, so the comment would only produce a 404.
-  const source = readFileSync(join(root, file), 'utf8').replace(/^\/\/# sourceMappingURL=.*$/m, '')
+  // Somebody else's build output, and not ours to answer for: the page's own files are
+  // type-checked, these are only shipped.
+  const source = `// @ts-nocheck\n${readFileSync(join(root, file), 'utf8').replace(/^\/\/# sourceMappingURL=.*$/m, '')}`
   writeFileSync(join(out, name), source)
   console.log(`vendored ${name} from ${pkg}@${JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version}`)
 }
