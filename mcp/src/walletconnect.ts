@@ -47,6 +47,24 @@ export function ownedSessions<T extends { topic: string }>(live: T[], bindings: 
   return live.filter((s) => bindings[s.topic] === identity || (identity === DEFAULT_IDENTITY && !bindings[s.topic]))
 }
 
+/**
+ * Bindings with no session behind them any more.
+ *
+ * An empty session list yields nothing: a store that has not hydrated looks exactly like one
+ * with no sessions, and clearing every binding would strand wallets that are still paired.
+ */
+export function orphanedBindings(live: { topic: string }[], bindings: Record<string, string>): string[] {
+  if (live.length === 0) return []
+  const known = new Set(live.map((session) => session.topic))
+  return Object.keys(bindings).filter((topic) => !known.has(topic))
+}
+
+/** What was paired before and is not paired now — a wallet that ended its own session. */
+export function droppedSessions<T extends { topic: string }>(before: T[], after: { topic: string }[]): T[] {
+  const live = new Set(after.map((session) => session.topic))
+  return before.filter((session) => !live.has(session.topic))
+}
+
 const METHODS = ['eth_sendTransaction', 'personal_sign', 'eth_signTypedData_v4']
 const EVENTS = ['chainChanged', 'accountsChanged']
 const APPROVAL_TIMEOUT = 300_000
@@ -138,6 +156,43 @@ export class PhoneSigner {
     })
   }
 
+  /**
+   * Some wallets keep one session per site, so approving a second pairing in the same app
+   * ends the first — the session vanishes from the store and the binding is left pointing at
+   * nothing. Worth saying out loud: `pair_phone_wallet` has just listed that wallet as still
+   * paired, and the next `wallet_status` will quietly show one fewer.
+   */
+  private async reportReplaced(identity: string, before: Session[]): Promise<void> {
+    const dropped = droppedSessions(before, await this.sessions(identity))
+    if (dropped.length === 0) return
+
+    for (const session of dropped) {
+      log(
+        'warning',
+        'WalletConnect',
+        `${session.peer ?? 'A wallet'} ended its earlier pairing for ${session.accounts[0] ?? 'an account'} when this one was approved — ` +
+          'it keeps one session per site. Pair a different wallet app to hold both at once.'
+      )
+    }
+
+    await this.sweepBindings()
+  }
+
+  /**
+   * Bindings outlive the sessions they point at, so they accumulate. Swept here rather than
+   * on every read: a pairing has just settled, which is the one moment the session store is
+   * known to be populated.
+   */
+  private async sweepBindings(): Promise<void> {
+    const orphans = orphanedBindings(this.client?.session.getAll() ?? [], await this.bindings())
+    if (orphans.length === 0) return
+
+    await this.updateBindings((bindings) => {
+      for (const topic of orphans) delete bindings[topic]
+    })
+    log('info', 'WalletConnect', `Cleared ${orphans.length} binding(s) whose session is gone`)
+  }
+
   /** Every session this identity owns, live or not — what disconnecting should sweep. */
   private async owned(identity: string) {
     await this.start()
@@ -189,6 +244,9 @@ export class PhoneSigner {
     log('info', 'WalletConnect', `Pairing as "${this.agent ?? 'default name'}" for ${chains.length} chain(s)`)
     if (!this.client) throw new Error('WalletConnect failed to start')
 
+    // What this identity had before, so the approval can tell whether the wallet kept it.
+    const before = await this.sessions(identity)
+
     const clientManager = getClientManager()
     const eip155 = chains.map((chain) => `eip155:${clientManager.getChainId(chain)}`)
 
@@ -206,6 +264,7 @@ export class PhoneSigner {
         // Recorded as the session settles: whoever asked for this pairing owns it.
         await this.bind(session.topic, identity)
         log('info', 'WalletConnect', `Paired with ${session.peer?.metadata?.name ?? 'a wallet'}`)
+        await this.reportReplaced(identity, before)
       })
       .catch((error) => log('warning', 'WalletConnect', `Pairing was not completed: ${error.message}`))
 

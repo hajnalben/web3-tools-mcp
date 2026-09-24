@@ -65,7 +65,12 @@ export default {
           // Pairing adds rather than replaces, so say what is already there — scanning this
           // leaves the user with both, and signing tools take `account` to pick.
           ...(paired.length > 0 && {
-            alreadyPaired: paired.map((session) => ({ address: session.accounts[0], wallet: session.peer }))
+            alreadyPaired: paired.map((session) => ({ address: session.accounts[0], wallet: session.peer })),
+            // Whether both survive is the wallet's call, not this server's, and some keep
+            // only one session per site.
+            keepingBoth:
+              `Approving this in a wallet app already listed above (${[...new Set(paired.map((s) => s.peer).filter(Boolean))].join(', ')}) ` +
+              'may end its existing session — some wallets keep one per site. To hold both at once, approve this in a different wallet app.'
           }),
           // For an agent running on the phone itself there is nothing to scan, so hand over
           // links that open the wallet directly. `wallet` narrows the list to one.
