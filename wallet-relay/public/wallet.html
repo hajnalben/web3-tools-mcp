@@ -888,14 +888,12 @@
 
         <section id="txPreview" class="card tx-preview hidden" aria-live="polite">
             <div class="card-head">
-                <h2 class="card-title">Transaction request</h2>
-                <span class="pill">Awaiting approval</span>
+                <h2 class="card-title">Transaction requests</h2>
+                <span class="pill" id="txCount">Awaiting approval</span>
             </div>
-            <div id="txDetails" class="tx-details"></div>
-            <div class="tx-actions">
-                <button type="button" id="approveBtn" class="btn-approve" onclick="approveTx()">Approve &amp; sign</button>
-                <button type="button" class="btn-reject" onclick="rejectTx()">Reject</button>
-            </div>
+            <!-- One block per waiting request. Each carries its own id, so approving the
+                 second never answers the first. -->
+            <div id="txRequests"></div>
         </section>
 
         <section id="txHistory" class="tx-history hidden">
@@ -909,6 +907,6 @@
         </details>
     </div>
 
-    <script src="wallet-app.js"></script>
+    <script type="module" src="wallet-app.js"></script>
 </body>
 </html>

@@ -1,6 +1,7 @@
 import qrcode from 'qrcode-terminal'
 import { z } from 'zod'
 import { getClientManager, SUPPORTED_CHAINS } from '../../client.js'
+import { pendingSigningRequests } from '../../signing-requests.js'
 import type { ChainName } from '../../types.js'
 import { createTool, formatResponse } from '../../utils.js'
 import { getWalletClient } from '../../wallet-client.js'
@@ -192,7 +193,24 @@ export default {
             ? `Only ${ready[0]} is ready. Confirm with the user before signing there, or set the other one up.`
             : `No signer is ready. For a browser, give the user this link and ask them to open it and connect a wallet: ${signers.browser.walletUrl ?? '(relay unavailable)'}. For a phone, run pair_phone_wallet.`
 
-      return formatResponse({ ready, signers, message })
+      // Handed back by a signing tool that outlasted its call, and collectable by id —
+      // otherwise a signature waiting on somebody's phone is invisible from here.
+      const waiting = pendingSigningRequests(identity)
+
+      return formatResponse({
+        ready,
+        signers,
+        ...(waiting.length > 0 && {
+          awaitingApproval: waiting.map((request) => ({
+            requestId: request.id,
+            what: request.summary,
+            signedWith: request.signer,
+            waitingFor: `${Math.round((Date.now() - request.startedAt) / 1000)}s`
+          })),
+          nextStep: 'Collect each of these with check_signing_request rather than asking for the signature again.'
+        }),
+        message
+      })
     }
   )
 }

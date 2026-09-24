@@ -1,9 +1,22 @@
+import { requestQueue } from './request-queue.js'
+import htm from './vendor/htm.module.js'
+import { h, render } from './vendor/preact.module.js'
+
+/**
+ * Vendored rather than bundled: this page is served as the files you see, with no build step
+ * between the source and the browser. `htm` is a tagged template, so there is no JSX to
+ * compile — and interpolating a value escapes it, which on the screen that approves
+ * transactions is the point.
+ */
+const html = htm.bind(h)
+
+const queue = requestQueue()
+
 // State Management
 const state = {
   account: null,
   provider: null,
   ws: null,
-  currentRequest: null,
   chainId: null,
   chainName: null,
   balance: null
@@ -275,7 +288,9 @@ function clearRequestNotice() {
 function showStatus(title, message, type = 'info') {
   const statusEl = document.getElementById('statusMessage')
   statusEl.className = `status ${type}`
-  statusEl.innerHTML = `<strong>${title}:</strong> ${message}`
+  // Rendered, not concatenated: `message` is often a wallet or RPC error, and a revert
+  // string is chosen by the contract being called.
+  render(html`<strong>${title}:</strong> ${message}`, statusEl)
   statusEl.classList.remove('hidden')
 
   if (type === 'success' || type === 'info') {
@@ -602,30 +617,17 @@ async function switchToChain(chainName) {
 }
 
 // Transaction Preview
-function esc(value) {
-  return String(value ?? '').replace(
-    /[&<>"']/g,
-    (c) =>
-      ({
-        '&': '&amp;',
-        '<': '&lt;',
-        '>': '&gt;',
-        '"': '&quot;',
-        "'": '&#39;'
-      })[c]
-  )
-}
+//
+// Built as components rather than concatenated HTML. Everything on this screen — contract
+// labels, decoded field names, revert strings — arrives from whoever asked for the
+// signature, and a single missed escape would be script injection into the page holding the
+// keys. Interpolating a value here makes it text; there is no way to spell it that doesn't.
 
-function param(name, value, extra = '') {
-  return paramHtml(name, esc(value), extra)
-}
-
-/** Same row, but the value is already-built HTML (a link). Callers must escape it. */
-function paramHtml(name, valueHtml, extra = '') {
-  return `<div class="tx-param">
-        <span class="tx-param-name">${esc(name)}:</span>
-        <span class="tx-param-value">${valueHtml}</span>${extra}
-    </div>`
+function Param({ name, children, extra }) {
+  return html`<div class="tx-param">
+    <span class="tx-param-name">${name}:</span>
+    <span class="tx-param-value">${children}</span>${extra}
+  </div>`
 }
 
 function shortAddress(address) {
@@ -637,58 +639,63 @@ function shortAddress(address) {
  * The address stays in full: a truncated one can be forged with a vanity address, and this
  * is the last screen before signing. `short` is for secondary rows where space is tight.
  */
-function addressLink(address, label, explorer, short = false) {
-  const shown = esc(short ? shortAddress(address) : address)
-  const text = label ? `<span class="tx-label">${esc(label)}</span> ${shown}` : shown
+function AddressLink({ address, label, explorer, short }) {
+  const shown = short ? shortAddress(address) : address
+  const text = label ? html`<span class="tx-label">${label}</span> ${shown}` : shown
   if (!explorer) return text
-  return `<a class="tx-link" href="${esc(explorer)}/address/${esc(address)}" target="_blank" rel="noreferrer" title="${esc(address)}">${text}</a>`
+
+  return html`<a class="tx-link" href=${`${explorer}/address/${address}`} target="_blank" rel="noreferrer" title=${address}>
+    ${text}
+  </a>`
 }
 
-function renderAssetChanges(changes, explorer) {
+function AssetChange({ change, explorer }) {
   const account = (state.account || '').toLowerCase()
+  const amount = change.humanAmount ?? change.amount
+  const outgoing = change.from.toLowerCase() === account
+  const incoming = change.to.toLowerCase() === account
+  const direction = outgoing ? 'out' : incoming ? 'in' : 'other'
+  const sign = outgoing ? '−' : incoming ? '+' : '↔'
+  const other = outgoing ? change.to : change.from
+  const symbol = change.symbol ?? shortAddress(change.token)
 
-  return changes
-    .map((change) => {
-      const amount = change.humanAmount ?? change.amount
-      const outgoing = change.from.toLowerCase() === account
-      const incoming = change.to.toLowerCase() === account
-      const direction = outgoing ? 'out' : incoming ? 'in' : 'other'
-      const sign = outgoing ? '−' : incoming ? '+' : '↔'
-      const other = outgoing ? change.to : change.from
+  const token = explorer
+    ? html`<a class="tx-link" href=${`${explorer}/token/${change.token}`} target="_blank" rel="noreferrer" title=${change.token}>
+        ${symbol}
+      </a>`
+    : symbol
 
-      const token = explorer
-        ? `<a class="tx-link" href="${esc(explorer)}/token/${esc(change.token)}" target="_blank" rel="noreferrer" title="${esc(change.token)}">${esc(change.symbol ?? shortAddress(change.token))}</a>`
-        : esc(change.symbol ?? shortAddress(change.token))
-
-      return `<div class="tx-asset tx-asset-${direction}">
-            <span class="tx-asset-amount">${sign} ${esc(amount)} ${token}</span>
-            <span class="tx-asset-party">${outgoing ? 'to' : 'from'} ${addressLink(other, undefined, explorer, true)}</span>
-        </div>`
-    })
-    .join('')
+  return html`<div class=${`tx-asset tx-asset-${direction}`}>
+    <span class="tx-asset-amount">${sign} ${amount} ${token}</span>
+    <span class="tx-asset-party">
+      ${outgoing ? 'to' : 'from'} <${AddressLink} address=${other} explorer=${explorer} short />
+    </span>
+  </div>`
 }
 
-function renderSimulation(simulation, explorer) {
+function Simulation({ simulation, explorer }) {
   if (!simulation) {
-    return `<div class="tx-sim tx-sim-unknown">Not simulated — approve only if you know what this does.</div>`
+    return html`<div class="tx-sim tx-sim-unknown">Not simulated — approve only if you know what this does.</div>`
   }
 
   if (!simulation.success) {
-    return `<div class="tx-sim tx-sim-fail">
-            <strong>Simulation reverted</strong>
-            <div>${esc(simulation.error || 'execution reverted')}</div>
-            <div>This transaction will very likely fail and still cost gas.</div>
-        </div>`
+    return html`<div class="tx-sim tx-sim-fail">
+      <strong>Simulation reverted</strong>
+      <div>${simulation.error || 'execution reverted'}</div>
+      <div>This transaction will very likely fail and still cost gas.</div>
+    </div>`
   }
 
-  const changes = simulation.assetChanges?.length
-    ? `<div class="tx-assets">${renderAssetChanges(simulation.assetChanges, explorer)}</div>`
-    : `<div class="tx-sim-note">No token transfers detected.</div>`
-
-  return `<div class="tx-sim tx-sim-ok">
-        <strong>Simulation succeeded</strong>${simulation.gasEstimate ? ` · ${esc(simulation.gasEstimate)} gas` : ''}
-        ${changes}
-    </div>`
+  return html`<div class="tx-sim tx-sim-ok">
+    <strong>Simulation succeeded</strong>${simulation.gasEstimate ? ` · ${simulation.gasEstimate} gas` : ''}
+    ${
+      simulation.assetChanges?.length
+        ? html`<div class="tx-assets">
+            ${simulation.assetChanges.map((change) => html`<${AssetChange} change=${change} explorer=${explorer} />`)}
+          </div>`
+        : html`<div class="tx-sim-note">No token transfers detected.</div>`
+    }
+  </div>`
 }
 
 /**
@@ -704,66 +711,98 @@ function nativeAmount(value) {
   return fraction ? `${wei / 10n ** 18n}.${fraction}` : `${wei / 10n ** 18n}`
 }
 
-function renderTransactionPreview(request) {
-  const details = document.getElementById('txDetails')
-  const approveBtn = document.getElementById('approveBtn')
+/**
+ * Everything waiting for approval, newest last.
+ *
+ * A list rather than one at a time: an agent can have several signatures outstanding, and
+ * a single slot meant the second silently replaced the first, which was then never answered
+ * at all. Each block owns its request id, and they can be dealt with in any order.
+ */
+function renderRequests() {
+  const panel = document.getElementById('txPreview')
+  const count = document.getElementById('txCount')
+
+  panel.classList.toggle('hidden', queue.size === 0)
+  count.textContent = queue.size > 1 ? `${queue.size} awaiting approval` : 'Awaiting approval'
+  render(
+    html`${queue.list().map((request) => html`<${Request} key=${request.id} request=${request} />`)}`,
+    document.getElementById('txRequests')
+  )
+}
+
+function Request({ request }) {
+  const failed = request.preview?.simulation && !request.preview.simulation.success
+
+  return html`<article class="tx-request">
+    <div class="tx-details"><${RequestDetails} request=${request} /></div>
+    <div class="tx-actions">
+      <button type="button" class=${`btn-approve${failed ? ' btn-danger' : ''}`} onClick=${() => approveTx(request.id)}>
+        ${failed ? '⚠ Approve anyway' : '✓ Approve & sign'}
+      </button>
+      <button type="button" class="btn-reject" onClick=${() => rejectTx(request.id)}>Reject</button>
+    </div>
+  </article>`
+}
+
+function RequestDetails({ request }) {
   const data = request.data
   const preview = request.preview
 
-  let html = ''
+  if (request.type === 'sign_message') return html`<${Param} name="Message">${data.message}<//>`
+  if (request.type !== 'send_transaction') return null
 
-  if (request.type === 'send_transaction') {
-    const decoded = preview?.decoded
+  const decoded = preview?.decoded
+  const explorer = preview?.explorer
 
-    if (decoded) {
+  return html`
+    ${
+      decoded &&
       // The registry says what the call means ("Supply"); the function name is the detail.
-      const headline = decoded.intent || decoded.functionName
-      const detail = decoded.intent ? decoded.functionName : ''
-
-      html += `<div class="tx-intent">${esc(headline)}
-                ${decoded.protocol ? `<span class="tx-protocol">${esc(decoded.protocol)}</span>` : ''}
-                <span class="tx-source tx-source-${esc(decoded.source)}">${decoded.source === 'verified' ? 'verified ABI' : 'ABI guessed from bytecode'}</span>
-                ${detail ? `<span class="tx-fn">${esc(detail)}()</span>` : ''}
-            </div>`
+      html`<div class="tx-intent">
+        ${decoded.intent || decoded.functionName}
+        ${decoded.protocol && html`<span class="tx-protocol">${decoded.protocol}</span>`}
+        <span class=${`tx-source tx-source-${decoded.source}`}>
+          ${decoded.source === 'verified' ? 'verified ABI' : 'ABI guessed from bytecode'}
+        </span>
+        ${decoded.intent && html`<span class="tx-fn">${decoded.functionName}()</span>`}
+      </div>`
     }
 
-    const explorer = preview?.explorer
+    <${Param} name="Contract">
+      <${AddressLink} address=${data.to} label=${preview?.toLabel} explorer=${explorer} />
+    <//>
 
-    html += paramHtml('Contract', addressLink(data.to, preview?.toLabel, explorer))
-    if (decoded?.proxy) html += paramHtml('Implementation', addressLink(decoded.proxy, undefined, explorer))
-
-    if (data.value && data.value !== '0x0') {
-      html += param('Value', `${nativeAmount(data.value)} ${state.chainName || 'native'}`)
+    ${
+      decoded?.proxy &&
+      html`<${Param} name="Implementation">
+        <${AddressLink} address=${decoded.proxy} explorer=${explorer} />
+      <//>`
     }
 
-    if (decoded) {
-      for (const field of decoded.fields) {
-        const warning = field.warning ? `<span class="tx-warning">⚠ ${esc(field.warning)}</span>` : ''
-        html += field.address
-          ? paramHtml(field.name, addressLink(field.address, field.label, explorer), warning)
-          : param(field.name, field.value, warning)
-      }
+    ${
+      data.value &&
+      data.value !== '0x0' &&
+      html`<${Param} name="Value">${nativeAmount(data.value)} ${state.chainName || 'native'}<//>`
     }
 
-    // Shown even when decoded: the decoding above describes the call, but it arrives with
-    // the request rather than being derived here, so the bytes that will actually be signed
-    // stay on screen beside it. The first four bytes are the selector.
-    if (data.data && data.data !== '0x') {
-      html += param('Calldata', `${data.data.substring(0, 66)}${data.data.length > 66 ? '…' : ''}`)
+    ${(decoded?.fields ?? []).map(
+      (field) => html`
+        <${Param} name=${field.name} extra=${field.warning && html`<span class="tx-warning">⚠ ${field.warning}</span>`}>
+          ${field.address ? html`<${AddressLink} address=${field.address} label=${field.label} explorer=${explorer} />` : field.value}
+        <//>`
+    )}
+
+    ${
+      // Shown even when decoded: the decoding above describes the call, but it arrives with
+      // the request rather than being derived here, so the bytes that will actually be signed
+      // stay on screen beside it. The first four bytes are the selector.
+      data.data &&
+      data.data !== '0x' &&
+      html`<${Param} name="Calldata">${data.data.substring(0, 66)}${data.data.length > 66 ? '…' : ''}<//>`
     }
 
-    html += renderSimulation(preview?.simulation, explorer)
-
-    const failed = preview?.simulation && !preview.simulation.success
-    approveBtn.textContent = failed ? '⚠ Approve anyway' : '✓ Approve & Sign'
-    approveBtn.classList.toggle('btn-danger', Boolean(failed))
-  } else if (request.type === 'sign_message') {
-    html += param('Message', data.message)
-    approveBtn.textContent = '✓ Approve & Sign'
-    approveBtn.classList.remove('btn-danger')
-  }
-
-  details.innerHTML = html
+    <${Simulation} simulation=${preview?.simulation} explorer=${explorer} />
+  `
 }
 
 // WebSocket Connection
@@ -814,21 +853,21 @@ function connectWebSocket() {
       const message = JSON.parse(event.data)
       if (message.type === 'ready') return
 
-      state.currentRequest = message
-      log(`Received ${state.currentRequest.type} request on ${state.currentRequest.chain}`, 'info')
+      queue.add(message)
+      log(`Received ${message.type} request on ${message.chain}`, 'info')
 
       // Announce before anything that can block. Switching chains opens a wallet popup,
       // and in a background tab nobody sees it — so waiting for it first meant the alert
       // that exists to fetch you never fired until you came back of your own accord.
-      renderTransactionPreview(state.currentRequest)
-      document.getElementById('txPreview').classList.remove('hidden')
+      renderRequests()
       showStatus('Pending', 'Transaction waiting for approval', 'warning')
-      announceRequest(state.currentRequest)
+      announceRequest(message)
 
-      // Line the wallet up on the right chain, so the preview matches what will be signed.
-      // A refusal here is not fatal: approving re-checks and will not sign on the wrong one.
-      if (state.currentRequest.chain && state.currentRequest.chain !== 'any') {
-        await switchToChain(state.currentRequest.chain).catch((error) => {
+      // Only when it is the one thing waiting. With others on screen the user is choosing
+      // which to deal with, and lining the wallet up for an arrival they have not looked at
+      // yet would throw a popup over the one they are reading. Approving switches anyway.
+      if (queue.size === 1 && message.chain && message.chain !== 'any') {
+        await switchToChain(message.chain).catch((error) => {
           log(`Could not switch chain yet: ${parseError(error).message}`, 'warn')
         })
       }
@@ -876,12 +915,15 @@ async function requireChain(chainName) {
   }
 }
 
-async function approveTx() {
-  if (!state.currentRequest) return
+/** The alert belongs to the list, not to any one request: quiet it only when none are left. */
+function settleNotice() {
+  if (queue.size === 0) clearRequestNotice()
+}
 
-  // Prevent double submission - clear current request immediately
-  const request = state.currentRequest
-  state.currentRequest = null
+async function approveTx(id) {
+  const request = queue.claim(id)
+  renderRequests()
+  if (!request) return
 
   try {
     // Ensure we have account
@@ -944,8 +986,7 @@ async function approveTx() {
       })
     )
 
-    document.getElementById('txPreview').classList.add('hidden')
-    clearRequestNotice()
+    settleNotice()
   } catch (error) {
     const err = parseError(error)
     log(`Transaction failed: ${err.message}`, 'error')
@@ -969,14 +1010,14 @@ async function approveTx() {
       })
     )
 
-    document.getElementById('txPreview').classList.add('hidden')
-    clearRequestNotice()
-    state.currentRequest = null
+    settleNotice()
   }
 }
 
-function rejectTx() {
-  if (!state.currentRequest) return
+function rejectTx(id) {
+  const request = queue.claim(id)
+  renderRequests()
+  if (!request) return
 
   log('Transaction rejected by user', 'info')
   showStatus('Rejected', 'Transaction rejected', 'warning')
@@ -985,16 +1026,17 @@ function rejectTx() {
 
   state.ws.send(
     JSON.stringify({
-      id: state.currentRequest.id,
+      id: request.id,
       success: false,
       error: 'User rejected transaction'
     })
   )
 
-  document.getElementById('txPreview').classList.add('hidden')
-  clearRequestNotice()
-  state.currentRequest = null
+  settleNotice()
 }
+
+// A module has no globals, and the page wires these four from onclick attributes.
+Object.assign(window, { connectWallet, enableNotifications, toggleChainDropdown, toggleDarkMode })
 
 // Auto-connect on load
 window.addEventListener('load', async () => {

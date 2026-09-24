@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { getClientManager, SUPPORTED_CHAINS } from '../../client.js'
 import { log } from '../../log.js'
 import { buildTxPreview, type RawTx, type TxPreview } from '../../preview.js'
+import { type SigningRequest, signingCall } from '../../signing-requests.js'
 import type { ChainName } from '../../types.js'
 import { createTool, formatResponse } from '../../utils.js'
 import { getWalletClient } from '../../wallet-client.js'
@@ -115,6 +116,25 @@ async function requestSignature(
   }
 }
 
+/**
+ * What to tell the agent when nobody has approved yet.
+ *
+ * Emphatically not a failure: the request is in front of a wallet right now. Calling the
+ * signing tool again would put a second, separately approvable request there — so the way
+ * back is the id, and this says so plainly enough that an agent does not retry instead.
+ */
+function awaitingApproval(request: SigningRequest) {
+  return formatResponse({
+    success: true,
+    status: 'awaiting_approval',
+    requestId: request.id,
+    signedWith: request.signer,
+    what: request.summary,
+    nextStep: `Tell the user to approve it${request.signer === 'phone' ? ' in their phone wallet — some wallets do not notify, so they may need to open the app themselves' : ' in the signing page'}, then call check_signing_request with requestId "${request.id}". Do not call this tool again: that would ask for a second signature.`,
+    message: 'Sent to the wallet. Nothing has been signed or broadcast yet.'
+  })
+}
+
 /** What the caller should see about a transaction before it is approved. */
 function previewSummary(preview: TxPreview) {
   return {
@@ -142,13 +162,12 @@ export default {
         const to = requireAddress('recipient address', args.to)
         const value = `0x${parseUnits(args.amount, 18).toString(16)}`
 
-        const { txHash, preview, signedWith } = await requestSignature(
-          args.chain as ChainName,
-          { to, value, data: args.data },
-          args.signWith,
-          identity,
-          args.account
+        const outcome = await signingCall(
+          { identity, signer: args.signWith, summary: `Send ${args.amount} on ${args.chain} to ${to}` },
+          () => requestSignature(args.chain as ChainName, { to, value, data: args.data }, args.signWith, identity, args.account)
         )
+        if (!outcome.done) return awaitingApproval(outcome.request)
+        const { txHash, preview, signedWith } = outcome.result
 
         return formatResponse({
           success: true,
@@ -188,17 +207,19 @@ export default {
           args: [to, parseUnits(args.amount, args.decimals ?? 18)]
         })
 
-        const { txHash, preview, signedWith } = await requestSignature(
-          args.chain as ChainName,
-          {
-            to: tokenAddress,
-            data,
-            value: '0x0'
-          },
-          args.signWith,
-          identity,
-          args.account
+        const outcome = await signingCall(
+          { identity, signer: args.signWith, summary: `Send ${args.amount} of ${tokenAddress} on ${args.chain} to ${to}` },
+          () =>
+            requestSignature(
+              args.chain as ChainName,
+              { to: tokenAddress, data, value: '0x0' },
+              args.signWith,
+              identity,
+              args.account
+            )
         )
+        if (!outcome.done) return awaitingApproval(outcome.request)
+        const { txHash, preview, signedWith } = outcome.result
 
         return formatResponse({
           success: true,
@@ -244,17 +265,13 @@ export default {
         })
         const value = args.value ? `0x${parseUnits(args.value, 18).toString(16)}` : '0x0'
 
-        const { txHash, preview, signedWith } = await requestSignature(
-          args.chain as ChainName,
-          {
-            to: contractAddress,
-            data,
-            value
-          },
-          args.signWith,
-          identity,
-          args.account
+        const outcome = await signingCall(
+          { identity, signer: args.signWith, summary: `${abiItem.name}() on ${contractAddress} (${args.chain})` },
+          () =>
+            requestSignature(args.chain as ChainName, { to: contractAddress, data, value }, args.signWith, identity, args.account)
         )
+        if (!outcome.done) return awaitingApproval(outcome.request)
+        const { txHash, preview, signedWith } = outcome.result
 
         return formatResponse({
           success: true,
@@ -282,18 +299,18 @@ export default {
     }),
     async (args, identity) => {
       try {
-        let signature: unknown
+        const sign = async () => {
+          if (args.signWith === 'phone') {
+            const { phone, from } = await requirePhoneSession(identity, args.account)
+            return phone.request('mainnet', 'personal_sign', [toHex(args.message), from], {
+              identity,
+              account: args.account
+            })
+          }
 
-        if (args.signWith === 'phone') {
-          const { phone, from } = await requirePhoneSession(identity, args.account)
-          signature = await phone.request('mainnet', 'personal_sign', [toHex(args.message), from], {
-            identity,
-            account: args.account
-          })
-        } else {
           const wallet = getWalletClient(identity)
           await wallet.waitForSigner()
-          signature = await wallet.request({
+          return wallet.request({
             id: generateRequestId(),
             type: 'sign_message',
             chain: 'any',
@@ -301,10 +318,16 @@ export default {
           })
         }
 
+        const outcome = await signingCall(
+          { identity, signer: args.signWith, summary: `Sign the message "${args.message.slice(0, 60)}"` },
+          sign
+        )
+        if (!outcome.done) return awaitingApproval(outcome.request)
+
         return formatResponse({
           success: true,
           message: args.message,
-          signature,
+          signature: outcome.result,
           signedWith: args.signWith,
           signatureType: 'personal_sign'
         })

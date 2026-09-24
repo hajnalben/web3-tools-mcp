@@ -11,6 +11,7 @@ import ensTools from './read/ens.js'
 import gasTools from './read/gas.js'
 import logTools from './read/logs.js'
 import signatureTools from './read/signatures.js'
+import signingRequestTools from './read/signing.js'
 import transactionTools from './sign/transactions.js'
 import walletTools from './sign/wallet.js'
 
@@ -32,7 +33,9 @@ const readTools = {
   ...logTools,
   ...advancedTools,
   ...ensTools,
-  ...gasTools
+  ...gasTools,
+  // A signature already asked for and paid for; collecting it is not a second request.
+  ...signingRequestTools
 } as const
 
 const signTools = {
