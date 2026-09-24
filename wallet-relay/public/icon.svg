@@ -1,10 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="Web3 Tools">
   <rect width="512" height="512" rx="112" fill="#3856d6"/>
-  <!-- Drawn in the same 24-unit space as the signing page's header mark, so the two cannot
-       drift. The diamond is the Ethereum logo as published (public domain, PD-textlogo),
-       with its own face opacities kept. -->
-  <g transform="translate(88 88) scale(14)">
-    <path d="M12 3l7 3v5c0 4.5-3 8.3-7 10-4-1.7-7-5.5-7-10V6l7-3z" fill="none" stroke="#ffffff" stroke-width="2" stroke-linejoin="round"/>
+  <!-- Scaled to the shield, not to the 24-unit box it is drawn in: the path occupies only
+       x 5..19 and y 3..21 of that box, so sizing to the box left the mark small in the tile.
+       The diamond is the Ethereum logo as published (public domain, PD-textlogo). -->
+  <g transform="translate(2.67 2.67) scale(21.1111)">
+    <path d="M12 3l7 3v5c0 4.5-3 8.3-7 10-4-1.7-7-5.5-7-10V6l7-3z" fill="none" stroke="#ffffff" stroke-width="1.5" stroke-linejoin="round"/>
     <g transform="translate(8.6227 6.2) scale(0.0125085)" fill="#ffffff">
       <path d="m269.9 325.2-269.9 122.7 269.9 159.6 270-159.6z" opacity=".6"/>
       <path d="m0.1 447.8 269.9 159.6v-607.4z" opacity=".45"/>

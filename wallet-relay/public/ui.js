@@ -69,13 +69,46 @@ export function parseError(error) {
 export const PAGE_TITLE = document.title
 
 export const ALERT_TITLE = '\u26a0 Transaction request'
+/**
+ * The app icon's shield, in whatever colour says what is happening.
+ *
+ * Cropped to the shield rather than the 24-unit box it is drawn in, and the diamond's faces
+ * flattened to one tone: at sixteen pixels the faceting is mud and the margin is everything.
+ */
 export const favicon = (fill) =>
-  `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7" fill="${fill}"/></svg>`)}`
+  `data:image/svg+xml,${encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="2.5 2.5 19 19">' +
+      `<path d="M12 3l7 3v5c0 4.5-3 8.3-7 10-4-1.7-7-5.5-7-10V6l7-3z" fill="${fill}"/>` +
+      '<g transform="translate(8.6227 6.2) scale(0.0125085)" fill="#fff">' +
+      '<path d="m269.9 325.2-269.9 122.7 269.9 159.6 270-159.6z"/>' +
+      '<path d="m0.1 447.8 269.9 159.6v-607.4z"/>' +
+      '<path d="m270 0v607.4l269.9-159.6z"/>' +
+      '<path d="m0 499 269.9 380.4v-220.9z"/>' +
+      '<path d="m269.9 658.5v220.9l270.1-380.4z"/>' +
+      '</g></svg>'
+  )}`
+
+/** The page's own accent, so the tab follows the theme rather than hardcoding one blue. */
+function accent() {
+  const value = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim()
+  return value || '#3856d6'
+}
 
 // Two real icons rather than one that gets removed: taking the <link> away leaves whatever
 // was last drawn sitting in the tab, so the badge outlived the request it announced.
-export const IDLE_FAVICON = favicon('#3856d6')
+export const idleFavicon = () => favicon(accent())
 export const ALERT_FAVICON = favicon('#e8a33d')
+
+/**
+ * Whether something is still waiting. Not the flashing, which stops as soon as the tab is
+ * looked at while the request carries on — the badge has to outlast that.
+ */
+let alerting = false
+
+/** Redraws the badge in the colour the page is currently using, without changing its state. */
+export function refreshFavicon() {
+  setFavicon(alerting ? ALERT_FAVICON : idleFavicon())
+}
 
 export let flashTimer = null
 
@@ -125,6 +158,7 @@ document.addEventListener('visibilitychange', () => {
  * favicon, which need no permission — and a desktop notification when one was granted.
  */
 export function announceRequest(request) {
+  alerting = true
   document.title = ALERT_TITLE
   startFlashing()
   setFavicon(ALERT_FAVICON)
@@ -171,8 +205,9 @@ export function updateNotifyButton() {
 }
 
 export function clearRequestNotice() {
+  alerting = false
   stopFlashing()
-  setFavicon(IDLE_FAVICON)
+  setFavicon(idleFavicon())
   document.title = PAGE_TITLE
 }
 

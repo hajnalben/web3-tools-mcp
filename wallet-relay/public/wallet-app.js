@@ -2,7 +2,7 @@
 import { toggleChainDropdown } from './chains.js'
 import { txHistory } from './history.js'
 import { connectWebSocket } from './relay.js'
-import { enableNotifications, IDLE_FAVICON, setFavicon, updateNotifyButton } from './ui.js'
+import { enableNotifications, refreshFavicon, updateNotifyButton } from './ui.js'
 import { connectWallet, restoreConnection, toggleDarkMode } from './wallet.js'
 
 /**
@@ -18,7 +18,7 @@ window.addEventListener('load', async () => {
   // doesn't open another one.
   connectWebSocket()
   // Give the tab an icon of its own, so the pending badge has something to revert to.
-  setFavicon(IDLE_FAVICON)
+  refreshFavicon()
   updateNotifyButton()
   await restoreConnection()
   txHistory.render()

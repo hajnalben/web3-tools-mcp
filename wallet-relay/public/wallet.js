@@ -3,7 +3,7 @@ import { CHAIN_CONFIGS, updateChainBadge } from './chains.js'
 import { txHistory } from './history.js'
 import { connectWebSocket, reportAccount } from './relay.js'
 import { state } from './state.js'
-import { log, parseError, showStatus, updateNotifyButton } from './ui.js'
+import { log, parseError, refreshFavicon, showStatus, updateNotifyButton } from './ui.js'
 
 /** Finding a browser wallet, connecting to it, and keeping what it says up to date. */
 
@@ -12,6 +12,8 @@ import { log, parseError, showStatus, updateNotifyButton } from './ui.js'
 export function toggleDarkMode() {
   document.body.classList.toggle('dark-mode')
   localStorage.setItem('darkMode', document.body.classList.contains('dark-mode') ? 'true' : 'false')
+  // The accent differs between themes and the badge is drawn from it.
+  refreshFavicon()
 }
 
 // Load dark mode preference on startup
