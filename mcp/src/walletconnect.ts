@@ -276,7 +276,16 @@ export class PhoneSigner {
     chain: ChainName,
     method: string,
     params: unknown[],
-    target: { identity?: string; account?: string } = {}
+    target: {
+      identity?: string
+      account?: string
+      /**
+       * Called once the request is with the wallet and only a human is left. Everything that
+       * can fail quickly — no session, a chain this one never approved — has already thrown
+       * by then, so the caller can stop waiting without hiding a real error.
+       */
+      onWaiting?: () => void
+    } = {}
   ): Promise<unknown> {
     const session = await this.session(target.identity, target.account)
     if (!session || !this.client) {
@@ -297,11 +306,17 @@ export class PhoneSigner {
       `→ ${method} on ${chain}, session ${session.topic.slice(0, 8)}, waiting for ${session.peer ?? 'wallet'}`
     )
     try {
-      const result = await this.client.request({
+      const answer = this.client.request({
         topic: session.topic,
         chainId: `eip155:${chainId}`,
         request: { method, params }
       })
+
+      // Neither MetaMask nor Rabby pushes a notification, so nobody is going to notice this
+      // in the next few seconds unless they already had the wallet open.
+      target.onWaiting?.()
+
+      const result = await answer
       log('info', 'WalletConnect', `← ${method} answered in ${Date.now() - started}ms`)
       return result
     } catch (error) {

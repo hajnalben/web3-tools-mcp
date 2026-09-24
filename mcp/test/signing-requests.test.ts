@@ -30,6 +30,54 @@ describe('a signature that outlives its tool call', () => {
     expect(outcome).toEqual({ done: true, result: '0xhash' })
   })
 
+  /**
+   * A phone wallet that pushes no notification — MetaMask and Rabby both — will not be
+   * looked at in the next twenty-five seconds, so spending them is dead time. That path says
+   * when the request is with the wallet, and the call returns right then.
+   */
+  it('returns as soon as the signer says a human is all that is left', async () => {
+    const wallet = never<string>()
+    const slow = { ...fast, graceMs: 60_000 }
+
+    const started = Date.now()
+    const outcome = await signingCall(slow, ({ waiting }) => {
+      waiting()
+      return wallet.promise
+    })
+
+    expect(outcome.done).toBe(false)
+    expect(Date.now() - started).toBeLessThan(1_000)
+
+    wallet.approve('0xlater')
+  })
+
+  /**
+   * The reason this is a signal and not simply a shorter timer for phones: a missing
+   * session, an unapproved chain or a reverted simulation all fail before the wallet is
+   * involved, and must stay errors the agent sees rather than something it has to poll for.
+   */
+  it('still throws when the failure happens before the wallet is even asked', async () => {
+    await expect(
+      signingCall({ ...fast, graceMs: 60_000 }, async ({ waiting }) => {
+        throw new Error('No phone wallet is paired')
+        // biome-ignore lint/correctness/noUnreachable: the signal must never be reached
+        waiting()
+      })
+    ).rejects.toThrow('No phone wallet is paired')
+  })
+
+  it('waits out the grace for a signer that never signals, which is the browser', async () => {
+    const wallet = never<string>()
+    const started = Date.now()
+
+    const outcome = await signingCall({ ...fast, graceMs: 120 }, () => wallet.promise)
+
+    expect(outcome.done).toBe(false)
+    expect(Date.now() - started).toBeGreaterThanOrEqual(100)
+
+    wallet.approve('0xbrowser')
+  })
+
   it('hands back an id rather than waiting for a wallet nobody is watching', async () => {
     const wallet = never<string>()
     const outcome = await signingCall(fast, () => wallet.promise)
@@ -84,6 +132,39 @@ describe('a signature that outlives its tool call', () => {
     expect(collected.state).toBe('pending')
 
     wallet.approve('0xeventually')
+  })
+
+  /**
+   * A hash means broadcast, not done. Something waiting on the chain has nothing left for
+   * the user to do, so it must not be reported as though it were still asking them.
+   */
+  it('says it is mining once broadcast, and stops asking the user for anything', async () => {
+    const wallet = never<string>()
+    const outcome = await signingCall({ ...fast, graceMs: 60_000 }, ({ waiting, mining }) => {
+      waiting()
+      mining('0xdeadbeef')
+      return wallet.promise
+    })
+    if (outcome.done) throw new Error('should not have settled')
+
+    expect(outcome.request.stage).toBe('mining')
+    expect(outcome.request.txHash).toBe('0xdeadbeef')
+
+    const [live] = pendingSigningRequests(ALICE).filter((request) => request.id === outcome.request.id)
+    expect(live.stage).toBe('mining')
+
+    wallet.approve('0xmined')
+  })
+
+  it('starts out waiting on a person, not on the chain', async () => {
+    const wallet = never<string>()
+    const outcome = await signingCall(fast, () => wallet.promise)
+    if (outcome.done) throw new Error('should not have settled')
+
+    expect(outcome.request.stage).toBe('approval')
+    expect(outcome.request.txHash).toBeUndefined()
+
+    wallet.approve('0xdone')
   })
 
   it('lists what is still in front of a wallet, so nothing is lost between calls', async () => {

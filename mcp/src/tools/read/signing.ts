@@ -21,13 +21,30 @@ export default {
       try {
         const request = await collectSigningRequest(args.requestId, identity)
 
+        const waitedFor = `${Math.round((Date.now() - request.startedAt) / 1000)}s`
+
         if (request.state === 'pending') {
+          // Approved already and waiting on the chain is a different thing to report: there
+          // is nothing left for the user to do, and nothing to chase them about.
+          if (request.stage === 'mining') {
+            return formatResponse({
+              success: true,
+              status: 'mining',
+              requestId: request.id,
+              what: request.summary,
+              transactionHash: request.txHash,
+              waitingFor: waitedFor,
+              nextStep: 'Approved and broadcast. Call this again with the same requestId to get the mined result.',
+              message: 'Signed and sent. Waiting for it to be mined.'
+            })
+          }
+
           return formatResponse({
             success: true,
             status: 'awaiting_approval',
             requestId: request.id,
             what: request.summary,
-            waitingFor: `${Math.round((Date.now() - request.startedAt) / 1000)}s`,
+            waitingFor: waitedFor,
             nextStep:
               'Still not approved. Ask the user to check their wallet and approve or reject it, then call this again with the same requestId.',
             message: 'Nothing has been signed yet.'
@@ -44,13 +61,22 @@ export default {
           })
         }
 
+        // A transaction carries how it ended on the chain; a message signature is just the
+        // signature, with nothing to mine.
+        const settled = request.result as { receipt?: { status: string; blockNumber?: string; gasUsed?: string } } | undefined
+        const reverted = settled?.receipt?.status === 'reverted'
+
         return formatResponse({
-          success: true,
-          status: 'signed',
+          success: !reverted,
+          status: settled?.receipt?.status ?? 'signed',
           what: request.summary,
           signedWith: request.signer,
           result: request.result,
-          message: 'Approved and sent.'
+          message: reverted
+            ? 'Mined, but it reverted. The gas was spent and nothing else changed.'
+            : settled?.receipt?.status === 'broadcast'
+              ? 'Approved and broadcast, but not mined yet.'
+              : 'Approved and done.'
         })
       } catch (error) {
         return failure(error, 'Could not check that signing request')

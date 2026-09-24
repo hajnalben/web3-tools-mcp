@@ -18,7 +18,14 @@ import { log } from './log.js'
  * session that carries it is alive, and both die with the process anyway.
  */
 
-/** Long enough for an attentive human, comfortably under any MCP client's tool timeout. */
+/**
+ * How long to wait on a signer that has been told to come — the browser page, whose tab
+ * opens and whose title flashes. Comfortably under any MCP client's tool timeout.
+ *
+ * A signer that cannot raise the alarm does not use this at all: it calls `waiting()` the
+ * moment the request is with the wallet, and the call returns then. Waiting on a phone that
+ * never buzzed is dead time either way.
+ */
 export const GRACE_MS = 25_000
 
 /** How long a finished result stays collectable. */
@@ -32,11 +39,26 @@ export interface SigningRequest {
   /** What is being asked for, in a line, so a later check can say what it was. */
   summary: string
   signer: 'browser' | 'phone'
+  /** Waiting on a person, or on the chain. They deserve different things said about them. */
+  stage: 'approval' | 'mining'
+  /** Known once approved, so a request can be followed on an explorer before it settles. */
+  txHash?: string
   startedAt: number
   state: SigningState
   settledAt?: number
   result?: unknown
   error?: string
+}
+
+/** How a signing job says where it has got to. */
+export interface SigningProgress {
+  /**
+   * The request is with the wallet and only a human is left. Everything that fails quickly —
+   * no session, an unapproved chain, a reverted simulation — has already thrown.
+   */
+  waiting: () => void
+  /** Approved and broadcast. Nothing is settled until it is mined. */
+  mining: (txHash: string) => void
 }
 
 interface Tracked extends SigningRequest {
@@ -59,16 +81,20 @@ function view(request: Tracked): SigningRequest {
 }
 
 /** Resolves when the request settles, or when the grace runs out — whichever comes first. */
-function race(request: Tracked, graceMs: number): Promise<void> {
+function race(request: Tracked, graceMs: number, handoff?: Promise<void>): Promise<void> {
   return new Promise((resolve) => {
     const timer = setTimeout(resolve, graceMs)
     // A request nobody is waiting for must not keep a stdio server alive after its client
     // has gone; shutdown is what ends it.
     timer.unref?.()
-    request.settled.then(() => {
+
+    const done = () => {
       clearTimeout(timer)
       resolve()
-    })
+    }
+
+    request.settled.then(done)
+    handoff?.then(done)
   })
 }
 
@@ -80,36 +106,56 @@ function race(request: Tracked, graceMs: number): Promise<void> {
  */
 export async function signingCall<T>(
   context: { identity: string; summary: string; signer: 'browser' | 'phone'; graceMs?: number },
-  run: () => Promise<T>
+  run: (progress: SigningProgress) => Promise<T>
 ): Promise<{ done: true; result: T } | { done: false; request: SigningRequest }> {
   sweep()
 
   const id = randomBytes(16).toString('hex')
-  const started = run()
 
+  // Ends the wait: until it is called, a failure is a real error the caller should see
+  // rather than something to be collected later.
+  let handedOff: () => void
+  const handoff = new Promise<void>((resolve) => {
+    handedOff = resolve
+  })
+
+  // Built before `run` starts, because a signer is free to report progress synchronously.
   const request: Tracked = {
     id,
     identity: context.identity,
     summary: context.summary,
     signer: context.signer,
+    stage: 'approval',
     startedAt: Date.now(),
     state: 'pending',
-    settled: started.then(
-      (result) => {
-        request.state = 'done'
-        request.result = result
-        request.settledAt = Date.now()
-      },
-      (error: unknown) => {
-        request.state = 'failed'
-        request.error = error instanceof Error ? error.message : String(error)
-        request.settledAt = Date.now()
-      }
-    )
+    settled: Promise.resolve()
   }
 
+  // Broadcasting does not end the wait. On a fast chain the receipt is seconds away, and a
+  // caller still inside its grace would rather have the mined result than a request id.
+  const started = run({
+    waiting: () => handedOff(),
+    mining: (txHash) => {
+      request.stage = 'mining'
+      request.txHash = txHash
+    }
+  })
+
+  request.settled = started.then(
+    (result) => {
+      request.state = 'done'
+      request.result = result
+      request.settledAt = Date.now()
+    },
+    (error: unknown) => {
+      request.state = 'failed'
+      request.error = error instanceof Error ? error.message : String(error)
+      request.settledAt = Date.now()
+    }
+  )
+
   requests.set(id, request)
-  await race(request, context.graceMs ?? GRACE_MS)
+  await race(request, context.graceMs ?? GRACE_MS, handoff)
 
   if (request.state === 'done') {
     requests.delete(id)

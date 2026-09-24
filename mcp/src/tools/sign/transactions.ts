@@ -4,7 +4,7 @@ import { z } from 'zod'
 import { getClientManager, SUPPORTED_CHAINS } from '../../client.js'
 import { log } from '../../log.js'
 import { buildTxPreview, type RawTx, type TxPreview } from '../../preview.js'
-import { type SigningRequest, signingCall } from '../../signing-requests.js'
+import { type SigningProgress, type SigningRequest, signingCall } from '../../signing-requests.js'
 import type { ChainName } from '../../types.js'
 import { createTool, formatResponse } from '../../utils.js'
 import { getWalletClient } from '../../wallet-client.js'
@@ -74,7 +74,41 @@ async function requirePhoneSession(identity: string, account?: string) {
   return { phone, session, from }
 }
 
-async function signOnPhone(chain: ChainName, tx: RawTx & { data?: string }, identity: string, account?: string) {
+/** Long enough for a congested chain, short enough that a stuck one is reported rather than hung on. */
+const RECEIPT_TIMEOUT = 180_000
+
+/**
+ * Wait for the transaction to actually be mined.
+ *
+ * A hash means broadcast, nothing more. Reporting that as success is how a reverted
+ * transaction — gas spent, nothing done — gets read back as if it had worked.
+ */
+async function confirm(chain: ChainName, txHash: unknown) {
+  try {
+    const receipt = await getClientManager()
+      .getClient(chain)
+      .waitForTransactionReceipt({ hash: txHash as `0x${string}`, timeout: RECEIPT_TIMEOUT })
+
+    return {
+      status: receipt.status === 'success' ? ('mined' as const) : ('reverted' as const),
+      blockNumber: receipt.blockNumber.toString(),
+      gasUsed: receipt.gasUsed.toString()
+    }
+  } catch (error) {
+    // Still out there — it simply has not been mined yet. Not a failure, and saying so beats
+    // claiming either outcome.
+    log('warning', 'Transaction', `No receipt for ${txHash} yet: ${(error as Error).message}`)
+    return { status: 'broadcast' as const }
+  }
+}
+
+async function signOnPhone(
+  chain: ChainName,
+  tx: RawTx & { data?: string },
+  identity: string,
+  account: string | undefined,
+  progress: SigningProgress
+) {
   const { phone, from } = await requirePhoneSession(identity, account)
   const preview = await buildTxPreview(chain, tx, from)
 
@@ -82,38 +116,47 @@ async function signOnPhone(chain: ChainName, tx: RawTx & { data?: string }, iden
     chain,
     'eth_sendTransaction',
     [{ from, to: tx.to, value: tx.value ?? '0x0', ...(tx.data && { data: tx.data }) }],
-    { identity, account }
+    { identity, account, onWaiting: progress.waiting }
   )
 
-  return { txHash, preview, signedWith: 'phone' as const }
+  progress.mining(String(txHash))
+  return { txHash, preview, signedWith: 'phone' as const, receipt: await confirm(chain, txHash) }
 }
 
+/**
+ * `onWaiting` is what decides whether the tool call waits.
+ *
+ * The browser signer never calls it: the tab is opened and the title flashes, so somebody is
+ * looking within seconds and the grace period is worth spending. A phone is only as loud as
+ * the wallet, and the two people actually use push nothing at all — so that path hands back
+ * a request id as soon as the wallet has it, rather than spending the grace on silence.
+ */
 async function requestSignature(
   chain: ChainName,
   tx: RawTx & { data?: string },
   signWith: SignWith,
   identity: string,
-  account?: string
+  account: string | undefined,
+  progress: SigningProgress
 ) {
   log('info', 'Transaction', `${chain} → ${tx.to}, signing with ${signWith}`)
-  if (signWith === 'phone') return signOnPhone(chain, tx, identity, account)
+  if (signWith === 'phone') return signOnPhone(chain, tx, identity, account, progress)
 
   const wallet = getWalletClient(identity)
   await wallet.waitForSigner()
 
   const preview = await buildTxPreview(chain, tx, wallet.getAddress())
 
-  return {
-    txHash: await wallet.request({
-      id: generateRequestId(),
-      type: 'send_transaction',
-      chain,
-      data: { to: tx.to, value: tx.value ?? '0x0', ...(tx.data && { data: tx.data }) },
-      preview
-    }),
-    preview,
-    signedWith: 'browser' as const
-  }
+  const txHash = await wallet.request({
+    id: generateRequestId(),
+    type: 'send_transaction',
+    chain,
+    data: { to: tx.to, value: tx.value ?? '0x0', ...(tx.data && { data: tx.data }) },
+    preview
+  })
+
+  progress.mining(String(txHash))
+  return { txHash, preview, signedWith: 'browser' as const, receipt: await confirm(chain, txHash) }
 }
 
 /**
@@ -133,6 +176,35 @@ function awaitingApproval(request: SigningRequest) {
     nextStep: `Tell the user to approve it${request.signer === 'phone' ? ' in their phone wallet — some wallets do not notify, so they may need to open the app themselves' : ' in the signing page'}, then call check_signing_request with requestId "${request.id}". Do not call this tool again: that would ask for a second signature.`,
     message: 'Sent to the wallet. Nothing has been signed or broadcast yet.'
   })
+}
+
+/**
+ * Whether it worked, which is not the same question as whether it was sent.
+ *
+ * A reverted transaction is mined, costs gas and does nothing. Reporting it as a success
+ * because a hash came back is how an agent goes on to build on a state change that never
+ * happened.
+ */
+function minedOutcome(receipt: { status: 'mined' | 'reverted' | 'broadcast'; blockNumber?: string; gasUsed?: string }) {
+  if (receipt.status === 'reverted') {
+    return {
+      success: false,
+      status: 'reverted',
+      blockNumber: receipt.blockNumber,
+      gasUsed: receipt.gasUsed,
+      message: 'Mined, but it reverted. The gas was spent and nothing else changed.'
+    }
+  }
+
+  if (receipt.status === 'broadcast') {
+    return {
+      success: true,
+      status: 'broadcast',
+      message: 'Signed and broadcast, but not mined yet. Check the explorer link before treating it as done.'
+    }
+  }
+
+  return { success: true, status: 'mined', blockNumber: receipt.blockNumber, gasUsed: receipt.gasUsed }
 }
 
 /** What the caller should see about a transaction before it is approved. */
@@ -164,13 +236,21 @@ export default {
 
         const outcome = await signingCall(
           { identity, signer: args.signWith, summary: `Send ${args.amount} on ${args.chain} to ${to}` },
-          () => requestSignature(args.chain as ChainName, { to, value, data: args.data }, args.signWith, identity, args.account)
+          (progress) =>
+            requestSignature(
+              args.chain as ChainName,
+              { to, value, data: args.data },
+              args.signWith,
+              identity,
+              args.account,
+              progress
+            )
         )
         if (!outcome.done) return awaitingApproval(outcome.request)
-        const { txHash, preview, signedWith } = outcome.result
+        const { txHash, preview, signedWith, receipt } = outcome.result
 
         return formatResponse({
-          success: true,
+          ...minedOutcome(receipt),
           chain: args.chain,
           transactionHash: txHash,
           to,
@@ -209,20 +289,21 @@ export default {
 
         const outcome = await signingCall(
           { identity, signer: args.signWith, summary: `Send ${args.amount} of ${tokenAddress} on ${args.chain} to ${to}` },
-          () =>
+          (progress) =>
             requestSignature(
               args.chain as ChainName,
               { to: tokenAddress, data, value: '0x0' },
               args.signWith,
               identity,
-              args.account
+              args.account,
+              progress
             )
         )
         if (!outcome.done) return awaitingApproval(outcome.request)
-        const { txHash, preview, signedWith } = outcome.result
+        const { txHash, preview, signedWith, receipt } = outcome.result
 
         return formatResponse({
-          success: true,
+          ...minedOutcome(receipt),
           chain: args.chain,
           transactionHash: txHash,
           tokenAddress,
@@ -267,14 +348,21 @@ export default {
 
         const outcome = await signingCall(
           { identity, signer: args.signWith, summary: `${abiItem.name}() on ${contractAddress} (${args.chain})` },
-          () =>
-            requestSignature(args.chain as ChainName, { to: contractAddress, data, value }, args.signWith, identity, args.account)
+          (progress) =>
+            requestSignature(
+              args.chain as ChainName,
+              { to: contractAddress, data, value },
+              args.signWith,
+              identity,
+              args.account,
+              progress
+            )
         )
         if (!outcome.done) return awaitingApproval(outcome.request)
-        const { txHash, preview, signedWith } = outcome.result
+        const { txHash, preview, signedWith, receipt } = outcome.result
 
         return formatResponse({
-          success: true,
+          ...minedOutcome(receipt),
           chain: args.chain,
           transactionHash: txHash,
           contractAddress,
@@ -299,12 +387,13 @@ export default {
     }),
     async (args, identity) => {
       try {
-        const sign = async () => {
+        const sign = async (progress: SigningProgress) => {
           if (args.signWith === 'phone') {
             const { phone, from } = await requirePhoneSession(identity, args.account)
             return phone.request('mainnet', 'personal_sign', [toHex(args.message), from], {
               identity,
-              account: args.account
+              account: args.account,
+              onWaiting: progress.waiting
             })
           }
 
