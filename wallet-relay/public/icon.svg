@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="Web3 Tools">
+  <rect width="512" height="512" rx="112" fill="#3856d6"/>
+  <g transform="translate(88 88) scale(14)" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12 3l7 3v5c0 4.5-3 8.3-7 10-4-1.7-7-5.5-7-10V6l7-3z"/>
+    <path d="M9 12l2 2 4-4"/>
+  </g>
+</svg>
