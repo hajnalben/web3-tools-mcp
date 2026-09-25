@@ -1,8 +1,180 @@
-import { type AbiFunction, type Address, decodeFunctionResult, encodeFunctionData, isAddress, parseAbiItem } from 'viem'
+import {
+  type AbiFunction,
+  type Address,
+  decodeFunctionResult,
+  encodeFunctionData,
+  formatEther,
+  type Hex,
+  isAddress,
+  parseAbiItem,
+  toHex
+} from 'viem'
+import { simulateBlocks } from 'viem/actions'
 import { z } from 'zod'
 import { getClientManager, SUPPORTED_CHAINS } from '../../client.js'
+import { enrichTransfers } from '../../preview.js'
 import type { ChainName } from '../../types.js'
 import { convertArgumentsToTypes, createTool, formatResponse } from '../../utils.js'
+
+/** Alchemy's bundle method takes at most this many transactions. */
+const ALCHEMY_BUNDLE_LIMIT = 3
+/** One tool call is one quota unit, so an unbounded bundle would be a way around the quota. */
+const MAX_BUNDLE = 25
+/** Where eth_simulateV1's traced native transfers say they come from. */
+const NATIVE_TOKEN = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee'
+
+const argsSchema = z.array(z.union([z.string(), z.number(), z.boolean(), z.null()]))
+
+interface BundleCall {
+  from?: Address
+  to: Address
+  data?: Hex
+  value?: bigint
+  abi?: AbiFunction
+}
+
+interface AssetChange {
+  assetType: string
+  token?: string
+  symbol?: string
+  tokenId?: string
+  from: string
+  to: string
+  amount?: string
+  rawAmount: string
+}
+
+interface CallOutcome {
+  status: 'success' | 'failure'
+  gasUsed?: string
+  error?: string
+  result?: unknown
+  assetChanges: AssetChange[]
+}
+
+interface AlchemyOutcome {
+  changes: {
+    assetType: string
+    contractAddress?: string
+    symbol?: string
+    tokenId?: string
+    from: string
+    to: string
+    amount?: string
+    rawAmount: string
+  }[]
+  gasUsed?: Hex
+  error?: { message: string }
+}
+
+/**
+ * Why an RPC call failed, without the request URL — viem puts it in `message`, and with a
+ * provider key configured that URL carries the key.
+ */
+function rpcReason(error: unknown): string {
+  const { details, shortMessage } = error as { details?: string; shortMessage?: string }
+  return details || shortMessage || 'The RPC request failed'
+}
+
+function bundleCall(
+  call: { to: string; functionAbi?: string; args?: z.infer<typeof argsSchema>; data?: string; value?: string; from?: string },
+  from: string | undefined,
+  index: number
+): BundleCall {
+  const sender = call.from ?? from
+  if (!isAddress(call.to)) throw new Error(`Call ${index}: invalid to address ${call.to}`)
+  if (sender && !isAddress(sender)) throw new Error(`Call ${index}: invalid from address ${sender}`)
+  if (call.functionAbi && call.data) throw new Error(`Call ${index}: give functionAbi and args, or data — not both`)
+
+  const abi = call.functionAbi ? (parseAbiItem(call.functionAbi) as AbiFunction) : undefined
+  const data = abi
+    ? encodeFunctionData({ abi: [abi], functionName: abi.name, args: convertArgumentsToTypes(call.args ?? [], abi.inputs) })
+    : (call.data as Hex | undefined)
+
+  return { from: sender as Address | undefined, to: call.to, data, value: call.value ? BigInt(call.value) : undefined, abi }
+}
+
+/** Native, ERC20, ERC721 and ERC1155 changes with token metadata — on Alchemy's paid plans only. */
+async function viaAlchemy(chain: ChainName, calls: BundleCall[], blockNumber?: bigint): Promise<CallOutcome[]> {
+  const client = getClientManager().getClient(chain)
+  const transactions = calls.map((call) => ({
+    from: call.from,
+    to: call.to,
+    data: call.data,
+    value: call.value !== undefined ? toHex(call.value) : undefined
+  }))
+  const params = blockNumber === undefined ? [transactions] : [transactions, toHex(blockNumber)]
+
+  const outcomes = (await client.request({ method: 'alchemy_simulateAssetChangesBundle', params } as never)) as AlchemyOutcome[]
+  return outcomes.map((outcome) => ({
+    status: outcome.error ? 'failure' : 'success',
+    gasUsed: outcome.gasUsed ? BigInt(outcome.gasUsed).toString() : undefined,
+    error: outcome.error?.message,
+    assetChanges: outcome.changes.map((change) => ({
+      assetType: change.assetType,
+      token: change.contractAddress,
+      symbol: change.symbol,
+      tokenId: change.tokenId,
+      from: change.from,
+      to: change.to,
+      amount: change.amount,
+      rawAmount: change.rawAmount
+    }))
+  }))
+}
+
+function decodeResult(abi: AbiFunction | undefined, data: Hex): unknown {
+  if (!abi?.outputs.length) return data
+  try {
+    return decodeFunctionResult({ abi: [abi], functionName: abi.name, data })
+  } catch {
+    return data
+  }
+}
+
+/**
+ * Any RPC with eth_simulateV1: decoded return values, and native and ERC20 transfers.
+ *
+ * ponytail: an ERC721 transfer shares ERC20's Transfer topic, so it shows up here as an
+ * ERC20 transfer of 0. Tell them apart by topic count if NFT bundles matter on free keys.
+ */
+async function viaSimulateV1(chain: ChainName, calls: BundleCall[], blockNumber?: bigint): Promise<CallOutcome[]> {
+  const client = getClientManager().getClient(chain)
+  const [block] = await simulateBlocks(client, {
+    blocks: [{ calls: calls.map((call) => ({ account: call.from, to: call.to, data: call.data, value: call.value })) }],
+    traceTransfers: true,
+    validation: false,
+    ...(blockNumber !== undefined && { blockNumber })
+  })
+  if (!block) throw new Error('The RPC returned no simulated block')
+
+  const nativeSymbol = client.chain?.nativeCurrency.symbol
+  return Promise.all(
+    block.calls.map(async (call, index): Promise<CallOutcome> => {
+      const error = call.error as { shortMessage?: string; message?: string } | undefined
+      const transfers = await enrichTransfers(chain, (call.logs ?? []) as never)
+
+      return {
+        status: call.status,
+        gasUsed: call.gasUsed.toString(),
+        error: call.status === 'success' ? undefined : (error?.shortMessage ?? error?.message ?? 'execution reverted'),
+        result: call.status === 'success' ? decodeResult(calls[index]?.abi, call.data) : undefined,
+        assetChanges: transfers.map((transfer) => {
+          const native = transfer.token.toLowerCase() === NATIVE_TOKEN
+          return {
+            assetType: native ? 'NATIVE' : 'ERC20',
+            token: native ? undefined : transfer.token,
+            symbol: native ? nativeSymbol : transfer.symbol,
+            from: transfer.from,
+            to: transfer.to,
+            amount: native ? formatEther(BigInt(transfer.amount)) : transfer.humanAmount,
+            rawAmount: transfer.amount
+          }
+        })
+      }
+    })
+  )
+}
 
 export default {
   simulate_contract: createTool(
@@ -99,6 +271,82 @@ export default {
         })
       }
     }
+  ),
+
+  simulate_bundle: createTool(
+    'Simulate Transaction Bundle',
+    'Simulate several transactions in order, in one block, each seeing the state the previous ones left — e.g. ' +
+      'approve then swap, or deposit then borrow. Nothing is broadcast. Returns per transaction whether it ' +
+      'succeeded, gas used, the revert reason, and the assets that moved. Up to 3 transactions go through ' +
+      "Alchemy's asset-change simulation (native, ERC20, ERC721, ERC1155, with symbols) where the plan allows it; " +
+      'otherwise eth_simulateV1, which adds decoded return values but reports only native and ERC20 transfers.',
+    z.object({
+      chain: z.enum(SUPPORTED_CHAINS).describe('Blockchain network to simulate on'),
+      from: z.string().optional().describe('Sender for every transaction that does not name its own'),
+      calls: z
+        .array(
+          z.object({
+            to: z.string().describe('Contract or recipient address'),
+            functionAbi: z
+              .string()
+              .optional()
+              .describe('Function signature to encode the call, e.g. "function approve(address spender, uint256 amount)"'),
+            args: argsSchema.optional().describe('Arguments for functionAbi, in order'),
+            data: z.string().optional().describe('Raw calldata, instead of functionAbi and args'),
+            value: z.string().optional().describe('Native value to send, in wei'),
+            from: z.string().optional().describe('Sender of this transaction, if not the bundle-wide from')
+          })
+        )
+        .min(1)
+        .max(MAX_BUNDLE)
+        .describe('Transactions to run, in order'),
+      blockNumber: z.string().optional().describe('Block to simulate on top of (defaults to latest)')
+    }),
+    async (args) => {
+      const chain = args.chain as ChainName
+      const calls = args.calls.map((call, index) => bundleCall(call, args.from, index))
+      const blockNumber = args.blockNumber ? BigInt(args.blockNumber) : undefined
+
+      let outcomes: CallOutcome[] | undefined
+      let via = 'alchemy_simulateAssetChangesBundle'
+      let fallbackReason: string | undefined
+
+      if (calls.length <= ALCHEMY_BUNDLE_LIMIT) {
+        try {
+          outcomes = await viaAlchemy(chain, calls, blockNumber)
+        } catch (error) {
+          // A free plan, a chain Alchemy does not simulate on, or a custom RPC that is not Alchemy.
+          fallbackReason = rpcReason(error)
+        }
+      } else {
+        fallbackReason = `Alchemy simulates at most ${ALCHEMY_BUNDLE_LIMIT} transactions per bundle`
+      }
+
+      if (!outcomes) {
+        via = 'eth_simulateV1'
+        try {
+          outcomes = await viaSimulateV1(chain, calls, blockNumber)
+        } catch (error) {
+          return formatResponse({ success: false, chain, error: rpcReason(error), alchemyBundleError: fallbackReason })
+        }
+      }
+
+      return formatResponse({
+        success: outcomes.every((outcome) => outcome.status === 'success'),
+        chain,
+        via,
+        ...(fallbackReason && { fallbackReason }),
+        totalGasUsed: outcomes.reduce((sum, outcome) => sum + BigInt(outcome.gasUsed ?? 0), 0n),
+        calls: outcomes.map((outcome, index) => ({
+          index,
+          to: calls[index]?.to,
+          ...(calls[index]?.abi && { functionName: calls[index].abi.name }),
+          ...outcome
+        }))
+      })
+    },
+    // Offered only where a provider RPC backs it: public endpoints rarely serve eth_simulateV1.
+    () => Boolean(getClientManager().getConfig().alchemyApiKey)
   ),
 
   estimate_gas: createTool(

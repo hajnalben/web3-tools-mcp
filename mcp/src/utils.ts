@@ -7,13 +7,16 @@ export function createTool<T extends z.ZodType>(
   title: string,
   description: string,
   schema: T,
-  handler: (args: z.infer<T>, identity: string) => Promise<ToolResult>
+  handler: (args: z.infer<T>, identity: string) => Promise<ToolResult>,
+  /** Whether this server can serve the tool at all; one it cannot is never offered. */
+  available?: () => boolean
 ) {
   return {
     title,
     description,
     schema,
-    handler
+    handler,
+    available
   }
 }
 

@@ -138,6 +138,59 @@ describe('Gas Tools', () => {
     }, 30000)
   })
 
+  describe.skipIf(!process.env.ALCHEMY_API_KEY)('simulate_bundle', () => {
+    const USDC = '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48'
+    const HOLDER = '0x28C6c06298d514Db089934071355E5743bf21d60' // Binance 14
+    const SPENDER = '0x000000000000000000000000000000000000dEaD'
+    const approve = 'function approve(address spender, uint256 amount) returns (bool)'
+
+    it('carries state from one transaction to the next', async () => {
+      // Four is past Alchemy's bundle limit, so this always runs on eth_simulateV1.
+      const result = await gasTools.simulate_bundle.handler({
+        chain: 'mainnet',
+        from: HOLDER,
+        calls: [
+          { to: USDC, functionAbi: approve, args: [SPENDER, '123'] },
+          {
+            to: USDC,
+            functionAbi: 'function allowance(address owner, address spender) view returns (uint256)',
+            args: [HOLDER, SPENDER]
+          },
+          { to: USDC, functionAbi: 'function transfer(address to, uint256 amount) returns (bool)', args: [SPENDER, '1000000'] },
+          { to: USDC, functionAbi: approve, args: [SPENDER, '0'] }
+        ]
+      })
+
+      const data = JSON.parse(result.content[0].text)
+      expect(data.via).toBe('eth_simulateV1')
+      expect(data.success).toBe(true)
+      expect(data.calls[1].result).toBe('123')
+      expect(data.calls[2].assetChanges).toEqual([
+        expect.objectContaining({ assetType: 'ERC20', symbol: 'USDC', amount: '1', rawAmount: '1000000' })
+      ])
+    }, 60000)
+
+    it('says which transaction reverts', async () => {
+      const result = await gasTools.simulate_bundle.handler({
+        chain: 'mainnet',
+        from: HOLDER,
+        // More USDC than exists.
+        calls: [
+          {
+            to: USDC,
+            functionAbi: 'function transfer(address to, uint256 amount) returns (bool)',
+            args: [SPENDER, `1${'0'.repeat(30)}`]
+          }
+        ]
+      })
+
+      const data = JSON.parse(result.content[0].text)
+      expect(data.success).toBe(false)
+      expect(data.calls[0].status).toBe('failure')
+      expect(data.calls[0].error).toBeTruthy()
+    }, 60000)
+  })
+
   describe('simulate_contract', () => {
     it('should simulate a view function call', async () => {
       const USDC_CONTRACT = '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48'

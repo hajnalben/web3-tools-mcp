@@ -162,7 +162,10 @@ function topicToAddress(topic: string): string {
   return `0x${topic.slice(-40)}`
 }
 
-async function enrichTransfers(chain: ChainName, logs: readonly { address: string; topics: readonly string[]; data: string }[]) {
+export async function enrichTransfers(
+  chain: ChainName,
+  logs: readonly { address: string; topics: readonly string[]; data: string }[]
+) {
   const transfers = logs.filter((log) => log.topics[0]?.toLowerCase() === TRANSFER_TOPIC && log.topics.length >= 3)
 
   return Promise.all(

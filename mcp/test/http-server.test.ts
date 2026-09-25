@@ -7,6 +7,8 @@ import { getKeyValueStorage } from '../src/kv-storage.js'
 process.env.MCP_HOSTED = '1'
 vi.resetModules()
 const { startHttpServer } = await import('../src/http-server.js')
+// The fresh module graph has its own client manager, which a real server initializes first.
+;(await import('../src/client.js')).initializeClientManager({})
 
 const TOKEN = 'test-mcp-token'
 

@@ -71,6 +71,8 @@ export type ToolMiddleware = (
 
 export function registerAllTools(server: McpServer, middleware?: ToolMiddleware) {
   Object.entries(allToolDefinitions).forEach(([name, tool]) => {
+    if (tool.available && !tool.available()) return
+
     server.registerTool(
       name,
       {
