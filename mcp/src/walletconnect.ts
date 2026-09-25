@@ -1,4 +1,5 @@
 import { mkdirSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { getClientManager } from './client.js'
@@ -235,6 +236,19 @@ export class PhoneSigner {
    * settles, so every reply the wallet sends goes to a topic nobody is listening on. A
    * stale name in the dialog is a far smaller cost than signing that silently hangs.
    */
+  /**
+   * Hand every session one identity owns to another. A login pairs before anybody is known,
+   * under a placeholder, and the wallet it proved becomes that person's to sign with.
+   */
+  async rebind(from: string, to: string): Promise<void> {
+    await this.start()
+    await this.updateBindings((bindings) => {
+      for (const [topic, identity] of Object.entries(bindings)) {
+        if (identity === from) bindings[topic] = to
+      }
+    })
+  }
+
   nameAgent(agent?: string): void {
     if (agent && !this.client) this.agent = agent
   }
@@ -440,6 +454,33 @@ export async function pairingLinks(projectId: string, uri: string, search?: stri
       return [wallet.name, `${base}wc?uri=${encoded}`]
     })
   )
+}
+
+// qrcode-terminal's own encoder, already a dependency for the chat QR; it ships untyped.
+const require = createRequire(import.meta.url)
+const QRCode = require('qrcode-terminal/vendor/QRCode') as new (
+  typeNumber: number,
+  level: number
+) => { addData(text: string): void; make(): void; getModuleCount(): number; isDark(row: number, col: number): boolean }
+const LOW_CORRECTION = 1
+
+/** A QR as SVG, for a page to show. The terminal QR is only legible in monospace. */
+export function qrSvg(text: string): string {
+  const qr = new QRCode(-1, LOW_CORRECTION)
+  qr.addData(text)
+  qr.make()
+
+  const size = qr.getModuleCount()
+  const quiet = 4
+  let path = ''
+  for (let row = 0; row < size; row++) {
+    for (let col = 0; col < size; col++) {
+      if (qr.isDark(row, col)) path += `M${col + quiet} ${row + quiet}h1v1h-1z`
+    }
+  }
+
+  const box = size + quiet * 2
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${box} ${box}" shape-rendering="crispEdges"><rect width="${box}" height="${box}" fill="#fff"/><path d="${path}"/></svg>`
 }
 
 let signer: PhoneSigner | null = null

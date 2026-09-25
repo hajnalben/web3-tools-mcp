@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { getClientManager } from '../src/client.js'
-import { droppedSessions, orphanedBindings, PhoneSigner } from '../src/walletconnect.js'
+import { droppedSessions, orphanedBindings, PhoneSigner, qrSvg } from '../src/walletconnect.js'
 
 const projectId = process.env.WALLETCONNECT_PROJECT_ID
 
@@ -119,5 +119,21 @@ describe('bindings left behind by a session that is gone', () => {
    */
   it('refuses to sweep anything when the store looks empty', () => {
     expect(orphanedBindings([], bindings)).toEqual([])
+  })
+})
+
+describe('a pairing URI drawn as an SVG QR', () => {
+  it('is a version 1 code inside a four-module quiet zone', () => {
+    const svg = qrSvg('hello')
+    // 21 modules, plus four either side.
+    expect(svg).toContain('viewBox="0 0 29 29"')
+    // The top-left finder pattern's corner, just past the quiet zone.
+    expect(svg).toContain('M4 4h1v1h-1z')
+  })
+
+  it('grows with the data, as a WalletConnect URI needs', () => {
+    const uri = `wc:${'a'.repeat(64)}@2?relay-protocol=irn&symKey=${'b'.repeat(64)}`
+    const size = Number(qrSvg(uri).match(/viewBox="0 0 (\d+)/)?.[1])
+    expect(size).toBeGreaterThan(29)
   })
 })

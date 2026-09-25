@@ -21,4 +21,4 @@ export { registerAllTools, type ToolGroup, type ToolMiddleware, toolGroup } from
 export type { ChainName, Config, ToolResult } from './types.js'
 export { parseCommandLineArgs } from './utils.js'
 export { allWalletClients, configureWalletRelay, getWalletClient, WalletClient } from './wallet-client.js'
-export { getPhoneSigner, PhoneSigner } from './walletconnect.js'
+export { getPhoneSigner, PhoneSigner, qrSvg } from './walletconnect.js'

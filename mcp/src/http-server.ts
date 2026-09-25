@@ -3,7 +3,7 @@ import type { OAuthServerProvider } from '@modelcontextprotocol/sdk/server/auth/
 import { getOAuthProtectedResourceMetadataUrl, mcpAuthRouter } from '@modelcontextprotocol/sdk/server/auth/router.js'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
-import express from 'express'
+import express, { type Express } from 'express'
 import type { WalletRelay } from 'web3-wallet-relay'
 import { HOSTED } from './hosted.js'
 import { SingleUserOAuthProvider } from './oauth.js'
@@ -42,6 +42,8 @@ export interface HttpServerOptions {
    * from. `MCP_TOKEN` is then no longer required.
    */
   provider?: OAuthServerProvider
+  /** A host's own routes, mounted before the signing page claims whatever is left at the root. */
+  routes?: (app: Express) => void
 }
 
 export async function startHttpServer(options: HttpServerOptions): Promise<{ url: string; port: number; walletUrl?: string }> {
@@ -98,6 +100,8 @@ export async function startHttpServer(options: HttpServerOptions): Promise<{ url
     verifier: provider,
     resourceMetadataUrl: getOAuthProtectedResourceMetadataUrl(new URL('/mcp', issuer))
   })
+
+  options.routes?.(app)
 
   app.all('/mcp', authenticate, async (req, res) => {
     const mcp = options.createMcpServer()
