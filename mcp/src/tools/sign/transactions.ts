@@ -1,12 +1,13 @@
 import { randomBytes } from 'node:crypto'
 import { type AbiFunction, type Address, encodeFunctionData, isAddress, parseAbiItem, parseUnits, toHex } from 'viem'
 import { z } from 'zod'
+import { tokenMeta } from '../../chain-meta.js'
 import { getClientManager, SUPPORTED_CHAINS } from '../../client.js'
 import { log } from '../../log.js'
 import { buildTxPreview, type RawTx, type TxPreview } from '../../preview.js'
 import { type SigningProgress, type SigningRequest, signingCall } from '../../signing-requests.js'
 import type { ChainName } from '../../types.js'
-import { createTool, formatResponse } from '../../utils.js'
+import { convertArgumentsToTypes, createTool, formatResponse } from '../../utils.js'
 import { getWalletClient } from '../../wallet-client.js'
 import { getPhoneSigner } from '../../walletconnect.js'
 import { failure } from './errors.js'
@@ -72,6 +73,33 @@ async function requirePhoneSession(identity: string, account?: string) {
   const wanted = account?.toLowerCase()
   const from = session.accounts.find((a) => a.toLowerCase() === wanted) ?? session.accounts[0]
   return { phone, session, from }
+}
+
+/** The phone's wallet reaches chains through its own RPC, which cannot see this machine's node. */
+function requireReachable(chain: ChainName, signWith: SignWith) {
+  if (chain === 'localhost' && signWith === 'phone') {
+    throw new Error('A phone wallet cannot sign on localhost: it has no route to this machine\'s node. Use signWith "browser".')
+  }
+}
+
+/**
+ * The token's own decimals. A caller-supplied figure is only a cross-check: trusting a wrong
+ * one moves orders of magnitude more or less than was asked for.
+ */
+async function tokenDecimals(chain: ChainName, token: Address, claimed?: number): Promise<number> {
+  const onChain = (await tokenMeta(chain, token).catch(() => undefined))?.decimals
+  if (onChain === undefined) {
+    if (claimed === undefined) {
+      throw new Error(
+        `Could not read decimals() from ${token} on ${chain}. Check it is an ERC20 token on this chain, or pass "decimals" explicitly.`
+      )
+    }
+    return claimed
+  }
+  if (claimed !== undefined && claimed !== onChain) {
+    throw new Error(`"decimals" was ${claimed}, but ${token} reports ${onChain} on ${chain}. Nothing was sent.`)
+  }
+  return onChain
 }
 
 /** Long enough for a congested chain, short enough that a stuck one is reported rather than hung on. */
@@ -140,6 +168,7 @@ async function requestSignature(
   progress: SigningProgress
 ) {
   log('info', 'Transaction', `${chain} → ${tx.to}, signing with ${signWith}`)
+  requireReachable(chain, signWith)
   if (signWith === 'phone') return signOnPhone(chain, tx, identity, account, progress)
 
   const wallet = getWalletClient(identity)
@@ -212,6 +241,8 @@ function previewSummary(preview: TxPreview) {
   return {
     action: preview.decoded?.intent ?? preview.decoded?.functionName,
     protocol: preview.decoded?.protocol ?? preview.toLabel,
+    // Labels come from the contracts themselves, so the address they belong to goes too.
+    to: preview.to,
     details: preview.decoded?.fields.map((f) => `${f.name}: ${f.value}${f.warning ? ` (${f.warning})` : ''}`),
     simulation: preview.simulation
   }
@@ -273,7 +304,11 @@ export default {
       tokenAddress: z.string().describe('ERC20 token contract address'),
       to: z.string().describe('Recipient address'),
       amount: z.string().describe('Amount in token units (e.g., "100" for 100 USDC)'),
-      decimals: z.number().optional().default(18).describe('Token decimals (default: 18)'),
+      decimals: z
+        .number()
+        .int()
+        .optional()
+        .describe('Token decimals. Read from the token when omitted; when given, must match what the token reports.'),
       signWith: SignWithSchema,
       account: AccountSchema
     }),
@@ -281,10 +316,11 @@ export default {
       try {
         const tokenAddress = requireAddress('token address', args.tokenAddress)
         const to = requireAddress('recipient address', args.to)
+        const decimals = await tokenDecimals(args.chain as ChainName, tokenAddress, args.decimals)
 
         const data = encodeFunctionData({
           abi: [parseAbiItem('function transfer(address to, uint256 amount)')],
-          args: [to, parseUnits(args.amount, args.decimals ?? 18)]
+          args: [to, parseUnits(args.amount, decimals)]
         })
 
         const outcome = await signingCall(
@@ -327,9 +363,19 @@ export default {
       contractAddress: z.string().describe('Contract address'),
       functionAbi: z.string().describe('Function ABI definition (e.g., "function transfer(address to, uint256 amount)")'),
       args: z
-        .array(z.union([z.string(), z.number(), z.boolean()]))
+        .array(
+          z.union([
+            z.string(),
+            // JSON numbers past 2^53 arrive already rounded, so signing one would send a different value.
+            z.number().refine(Number.isSafeInteger, {
+              message:
+                'Numbers must be integers within ±2^53-1. Pass large or exact values as strings, e.g. "1000000000000000000".'
+            }),
+            z.boolean()
+          ])
+        )
         .optional()
-        .describe('Function arguments in order matching the ABI signature'),
+        .describe('Function arguments in order matching the ABI signature. Pass uint/int values as strings.'),
       value: z.string().optional().describe('Optional native value to send with transaction (in ETH units, e.g., "0.1")'),
       signWith: SignWithSchema,
       account: AccountSchema
@@ -342,7 +388,7 @@ export default {
         const data = encodeFunctionData({
           abi: [abiItem],
           functionName: abiItem.name,
-          args: (args.args || []) as readonly unknown[]
+          args: convertArgumentsToTypes(args.args || [], abiItem.inputs)
         })
         const value = args.value ? `0x${parseUnits(args.value, 18).toString(16)}` : '0x0'
 
@@ -389,8 +435,11 @@ export default {
       try {
         const sign = async (progress: SigningProgress) => {
           if (args.signWith === 'phone') {
-            const { phone, from } = await requirePhoneSession(identity, args.account)
-            return phone.request('mainnet', 'personal_sign', [toHex(args.message), from], {
+            const { phone, session, from } = await requirePhoneSession(identity, args.account)
+            // personal_sign is chain-agnostic, but the request still has to name a chain the session holds.
+            const chain = SUPPORTED_CHAINS.find((c) => session.chains.includes(getClientManager().getChainId(c)))
+            if (!chain) throw new Error(`The paired wallet approved no chain this server knows: ${session.chains.join(', ')}.`)
+            return phone.request(chain, 'personal_sign', [toHex(args.message), from], {
               identity,
               account: args.account,
               onWaiting: progress.waiting
@@ -403,7 +452,9 @@ export default {
             id: generateRequestId(),
             type: 'sign_message',
             chain: 'any',
-            data: { message: args.message }
+            // Hex on both signers: a wallet reads a raw "0x…" string as bytes, so the same text
+            // would otherwise sign differently depending on where it was approved.
+            data: { message: toHex(args.message) }
           })
         }
 

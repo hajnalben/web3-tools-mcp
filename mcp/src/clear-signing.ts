@@ -138,13 +138,19 @@ async function formatField(chain: ChainName, field: IndexField, root: unknown, t
       const token =
         field.params?.tokenAddress ?? (field.params?.tokenPath ? resolvePath(root, tx, field.params.tokenPath) : undefined)
 
-      const meta =
-        typeof token === 'string' && isAddress(token)
-          ? await tokenMeta(chain, token).catch(() => ({ symbol: undefined, decimals: undefined }))
-          : { symbol: undefined, decimals: undefined }
+      const tokenAddress = typeof token === 'string' && isAddress(token) ? getAddress(token) : undefined
+      const meta = tokenAddress
+        ? await tokenMeta(chain, tokenAddress).catch(() => ({ symbol: undefined, decimals: undefined }))
+        : { symbol: undefined, decimals: undefined }
+      // `amount` is the native currency, which always has 18 decimals.
+      const decimals = meta.decimals ?? (format === 'amount' && !tokenAddress ? 18 : undefined)
 
-      const symbol = meta.symbol ? ` ${meta.symbol}` : ''
-      out.value = amount > UNLIMITED_THRESHOLD ? `Unlimited${symbol}` : `${formatUnits(amount, meta.decimals ?? 18)}${symbol}`
+      // symbol() is whatever the token contract says it is, so the address always goes with it.
+      const symbol = `${meta.symbol ? ` ${meta.symbol}` : ''}${tokenAddress ? ` (${tokenAddress})` : ''}`
+      if (tokenAddress) out.address = tokenAddress
+      if (amount > UNLIMITED_THRESHOLD) out.value = `Unlimited${symbol}`
+      else if (decimals === undefined) out.value = `${amount}${symbol} (decimals unknown)`
+      else out.value = `${formatUnits(amount, decimals)}${symbol}`
       return out
     }
 
@@ -156,10 +162,10 @@ async function formatField(chain: ChainName, field: IndexField, root: unknown, t
         return out
       }
       const address = getAddress(raw as string)
-      const name = registry()[address.toLowerCase()]?.protocol
+      const name = lookupContract(chain, address)?.protocol
       out.address = address
       out.name = name ? protocolLabel(name) : await addressLabel(chain, address).catch(() => undefined)
-      out.value = out.name ?? address
+      out.value = out.name ? `${out.name} (${address})` : address
       return out
     }
 

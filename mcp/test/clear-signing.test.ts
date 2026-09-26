@@ -33,7 +33,7 @@ describe('ERC-7730 clear signing', () => {
 
     // Registry labels replace raw ABI argument names, and amounts carry their token.
     const amount = preview.decoded?.fields.find((f) => f.type === 'tokenAmount')
-    expect(amount?.value).toBe('250 USDC')
+    expect(amount?.value).toBe(`250 USDC (${USDC_MAINNET})`)
     expect(amount?.name).not.toBe('amount')
   })
 

@@ -85,15 +85,17 @@ function stringify(value: unknown): string {
  * Decode calldata into labelled fields (clear signing). Token amounts on the standard
  * ERC20 selectors are formatted with on-chain decimals and unlimited approvals flagged.
  */
-async function decodeCalldata(chain: ChainName, tx: RawTx): Promise<TxPreview['decoded']> {
+async function decodeCalldata(chain: ChainName, tx: RawTx, from?: string): Promise<TxPreview['decoded']> {
   if (!tx.data || tx.data === '0x') return undefined
 
   const { abi, source, proxy } = await loadAbi(chain, tx.to)
   const { functionName, args } = decodeFunctionData({ abi, data: tx.data as `0x${string}` })
 
-  const abiItem = abi.find((item): item is AbiFunction => item.type === 'function' && item.name === functionName)
+  // By selector, not name: an overloaded name would otherwise pick the wrong inputs.
+  const selector = tx.data.slice(0, 10).toLowerCase()
+  const abiItem = abi.find((item): item is AbiFunction => item.type === 'function' && toFunctionSelector(item) === selector)
   const inputs = abiItem?.inputs ?? []
-  const erc20 = ERC20_AMOUNT_ARGS[tx.data.slice(0, 10)]
+  const erc20 = ERC20_AMOUNT_ARGS[selector]
   const meta = erc20 ? await tokenMeta(chain, tx.to).catch(() => ({ symbol: undefined, decimals: undefined })) : undefined
 
   const fields: PreviewField[] = (args ?? []).map((value, i) => {
@@ -137,7 +139,7 @@ async function decodeCalldata(chain: ChainName, tx: RawTx): Promise<TxPreview['d
 
   // A registry descriptor says what the call means and how the protocol wants each field
   // labelled, which beats raw ABI argument names. Fall back to those when it has none.
-  const clearSigning = await resolveClearSigning(chain, tx, named).catch(() => null)
+  const clearSigning = await resolveClearSigning(chain, { ...tx, from }, named).catch(() => null)
   if (clearSigning) {
     return {
       functionName,
@@ -256,7 +258,7 @@ export async function buildTxPreview(chain: ChainName, tx: RawTx, from?: string)
   const [decoded, simulation, toLabel] = await Promise.all([
     // A preview that cannot be built must not block the transaction, but swallowing the
     // reason makes "no details shown" impossible to diagnose.
-    decodeCalldata(chain, tx).catch((error) => {
+    decodeCalldata(chain, tx, from).catch((error) => {
       console.error('[Preview] Could not decode calldata:', error instanceof Error ? error.message : error)
       return undefined
     }),
