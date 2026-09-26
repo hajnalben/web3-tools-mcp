@@ -1,5 +1,6 @@
 // @ts-check
 import { CHAIN_CONFIGS } from './chains.js'
+import { html, render } from './html.js'
 
 /** What this browser has signed before, kept in localStorage purely to show the user. */
 
@@ -47,36 +48,36 @@ export class TransactionHistory {
     }
 
     historySection.classList.remove('hidden')
-    container.innerHTML = history.map((tx) => this.renderItem(tx)).join('')
+    // Rendered as components: every field here came from a signing request, and was kept in
+    // storage any other script on this origin could have written to.
+    render(html`${history.map((tx) => this.renderItem(tx))}`, container)
   }
 
   renderItem(tx) {
     const date = new Date(tx.timestamp).toLocaleString()
-    const statusClass = tx.status || 'pending'
-    const explorerUrl = this.getExplorerUrl(tx.chain, tx.hash)
+    const statusClass = tx.status === 'success' || tx.status === 'failed' ? tx.status : 'pending'
+    const explorer = CHAIN_CONFIGS[tx.chain]?.explorer
 
-    return `
-            <div class="tx-history-item ${statusClass}">
-                <div class="tx-history-header">
-                    <span class="tx-history-function">${tx.function || 'Transaction'}</span>
-                    <span class="tx-history-status ${statusClass}">${statusClass.toUpperCase()}</span>
-                </div>
-                <div class="tx-history-details">
-                    <div>${tx.chain} • ${date}</div>
-                    ${tx.contract ? `<div>Contract: ${this.formatAddress(tx.contract)}</div>` : ''}
-                </div>
-                ${tx.hash ? `<a href="${explorerUrl}" target="_blank" class="tx-history-link">View on Explorer →</a>` : ''}
-            </div>
-        `
+    return html`<div class=${`tx-history-item ${statusClass}`}>
+      <div class="tx-history-header">
+        <span class="tx-history-function">${tx.function || 'Transaction'}</span>
+        <span class=${`tx-history-status ${statusClass}`}>${statusClass.toUpperCase()}</span>
+      </div>
+      <div class="tx-history-details">
+        <div>${tx.chain} • ${date}</div>
+        ${typeof tx.contract === 'string' && html`<div>Contract: ${this.formatAddress(tx.contract)}</div>`}
+      </div>
+      ${
+        typeof tx.hash === 'string' &&
+        /^0x[0-9a-fA-F]{64}$/.test(tx.hash) &&
+        explorer &&
+        html`<a href=${`${explorer}/tx/${tx.hash}`} target="_blank" rel="noreferrer" class="tx-history-link">View on Explorer →</a>`
+      }
+    </div>`
   }
 
   formatAddress(addr) {
     return `${addr.substring(0, 6)}...${addr.substring(addr.length - 4)}`
-  }
-
-  getExplorerUrl(chainName, txHash) {
-    const config = CHAIN_CONFIGS[chainName]
-    return config ? `${config.explorer}/tx/${txHash}` : `https://etherscan.io/tx/${txHash}`
   }
 }
 

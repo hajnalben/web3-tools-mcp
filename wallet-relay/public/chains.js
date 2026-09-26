@@ -7,18 +7,20 @@ import { updateWalletInfo } from './wallet.js'
 
 // Chain configurations (wallet providers will use their default RPCs)
 export const CHAIN_CONFIGS = {
-  mainnet: { chainId: '0x1', name: 'Ethereum', explorer: 'https://etherscan.io' },
-  arbitrum: { chainId: '0xa4b1', name: 'Arbitrum', explorer: 'https://arbiscan.io' },
-  avalanche: { chainId: '0xa86a', name: 'Avalanche', explorer: 'https://snowtrace.io' },
-  base: { chainId: '0x2105', name: 'Base', explorer: 'https://basescan.org' },
-  bnb: { chainId: '0x38', name: 'BNB Chain', explorer: 'https://bscscan.com' },
-  gnosis: { chainId: '0x64', name: 'Gnosis', explorer: 'https://gnosisscan.io' },
-  sonic: { chainId: '0x92', name: 'Sonic', explorer: 'https://sonicscan.org' },
-  optimism: { chainId: '0xa', name: 'Optimism', explorer: 'https://optimistic.etherscan.io' },
-  polygon: { chainId: '0x89', name: 'Polygon', explorer: 'https://polygonscan.com' },
-  zksync: { chainId: '0x144', name: 'zkSync Era', explorer: 'https://explorer.zksync.io' },
-  linea: { chainId: '0xe708', name: 'Linea', explorer: 'https://lineascan.build' },
-  unichain: { chainId: '0x82', name: 'Unichain', explorer: 'https://unichain.org' }
+  mainnet: { chainId: '0x1', name: 'Ethereum', symbol: 'ETH', explorer: 'https://etherscan.io' },
+  arbitrum: { chainId: '0xa4b1', name: 'Arbitrum', symbol: 'ETH', explorer: 'https://arbiscan.io' },
+  avalanche: { chainId: '0xa86a', name: 'Avalanche', symbol: 'AVAX', explorer: 'https://snowtrace.io' },
+  base: { chainId: '0x2105', name: 'Base', symbol: 'ETH', explorer: 'https://basescan.org' },
+  bnb: { chainId: '0x38', name: 'BNB Chain', symbol: 'BNB', explorer: 'https://bscscan.com' },
+  gnosis: { chainId: '0x64', name: 'Gnosis', symbol: 'xDAI', explorer: 'https://gnosisscan.io' },
+  sonic: { chainId: '0x92', name: 'Sonic', symbol: 'S', explorer: 'https://sonicscan.org' },
+  optimism: { chainId: '0xa', name: 'Optimism', symbol: 'ETH', explorer: 'https://optimistic.etherscan.io' },
+  polygon: { chainId: '0x89', name: 'Polygon', symbol: 'POL', explorer: 'https://polygonscan.com' },
+  zksync: { chainId: '0x144', name: 'zkSync Era', symbol: 'ETH', explorer: 'https://explorer.zksync.io' },
+  linea: { chainId: '0xe708', name: 'Linea', symbol: 'ETH', explorer: 'https://lineascan.build' },
+  unichain: { chainId: '0x82', name: 'Unichain', symbol: 'ETH', explorer: 'https://uniscan.xyz' },
+  // A wallet has no default RPC for a local node, so adding it needs one.
+  localhost: { chainId: '0x7a69', name: 'Localhost', symbol: 'ETH', rpc: 'http://127.0.0.1:8545' }
 }
 
 export function updateChainBadge(connected = false, chainName = 'Not Connected') {
@@ -132,8 +134,10 @@ export async function switchToChain(chainName) {
           params: [
             {
               chainId: targetChain.chainId,
-              chainName: targetChain.name
-              // Let wallet use its default RPC
+              chainName: targetChain.name,
+              nativeCurrency: { name: targetChain.symbol, symbol: targetChain.symbol, decimals: 18 },
+              // Otherwise let the wallet use its default RPC
+              ...(targetChain.rpc && { rpcUrls: [targetChain.rpc] })
             }
           ]
         })

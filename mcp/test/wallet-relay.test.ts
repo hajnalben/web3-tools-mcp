@@ -567,4 +567,190 @@ describe('WalletRelay', () => {
     const relay = await startRelay(4104)
     expect(relay.getPort()).toBe(4105)
   })
+
+  /**
+   * A request the requester has given up on must not stay approvable: the answer would reach
+   * nobody, the agent would retry, and the user could end up signing the same thing twice.
+   */
+  describe('withdrawn requests', () => {
+    it('tells the page when the requester goes away', async () => {
+      const relay = await startRelay(4130)
+      const signer = await connect(relay.getPort(), { token: SIGNER_TOKEN, role: 'signer', address: '0xabc' })
+      const requester = await connect(relay.getPort(), { token: REQUESTER_TOKEN, role: 'requester' })
+      sockets.push(signer, requester)
+      await nextMessage(requester, (m) => m.type === 'status' && m.signers === 1)
+
+      const delivered = nextMessage(signer, (m) => m.id === 'req-gone')
+      requester.send(JSON.stringify({ id: 'req-gone', type: 'send_transaction', chain: 'mainnet', data: {} }))
+      await delivered
+
+      const cancelled = nextMessage(signer, (m) => m.type === 'cancel')
+      requester.close()
+      expect(await cancelled).toEqual({ type: 'cancel', id: 'req-gone' })
+    })
+
+    it('only lets the requester that sent a request cancel it', async () => {
+      const relay = await startRelay(4131)
+      const signer = await connect(relay.getPort(), { token: SIGNER_TOKEN, role: 'signer', address: '0xabc' })
+      const owner = await connect(relay.getPort(), { token: REQUESTER_TOKEN, role: 'requester' })
+      const other = await connect(relay.getPort(), { token: REQUESTER_TOKEN, role: 'requester' })
+      sockets.push(signer, owner, other)
+      await nextMessage(owner, (m) => m.type === 'status' && m.signers === 1)
+
+      const delivered = nextMessage(signer, (m) => m.id === 'req-own')
+      owner.send(JSON.stringify({ id: 'req-own', type: 'send_transaction', chain: 'mainnet', data: {} }))
+      await delivered
+
+      const seen: unknown[] = []
+      signer.on('message', (d: Buffer) => seen.push(JSON.parse(d.toString())))
+      other.send(JSON.stringify({ type: 'cancel', id: 'req-own' }))
+
+      const answer = nextMessage(owner, (m) => m.id === 'req-own')
+      signer.send(JSON.stringify({ id: 'req-own', success: true, result: '0xhash' }))
+      expect(await answer).toMatchObject({ result: '0xhash' })
+      expect(seen).toEqual([])
+    })
+
+    it('stamps an expiry, and cancels at the page when the client times out', async () => {
+      const client = new WalletClient('default', { port: 4132, token: TOKEN })
+      client.requestTimeout = 200
+      await client.connect()
+
+      const signer = await connect(4132, { token: SIGNER_TOKEN, role: 'signer', address: '0xabc' })
+      sockets.push(signer)
+      while (!client.isConnected()) await new Promise((resolve) => setTimeout(resolve, 10))
+
+      const delivered = nextMessage(signer, (m) => m.id === 'req-slow')
+      const cancelled = nextMessage(signer, (m) => m.type === 'cancel')
+      const before = Date.now()
+      const outcome = client.request({ id: 'req-slow', type: 'send_transaction', chain: 'mainnet', data: { to: '0xdef' } })
+
+      const request = await delivered
+      expect(request.expiresAt).toBeGreaterThanOrEqual(before + 200)
+      expect(request.expiresAt).toBeLessThanOrEqual(Date.now() + 200)
+
+      // Timing out is not a rejection: the agent must not be told nothing was signed.
+      await expect(outcome).rejects.toThrow(/outcome is unknown/)
+      expect(await cancelled).toEqual({ type: 'cancel', id: 'req-slow' })
+
+      await client.stop()
+    })
+
+    it('fails in-flight requests as unknown when the relay connection drops', async () => {
+      const relay = await startRelay(4133)
+      const client = new WalletClient('default', { port: 4133, token: TOKEN })
+      await client.connect()
+
+      const signer = await connect(relay.getPort(), { token: SIGNER_TOKEN, role: 'signer', address: '0xabc' })
+      sockets.push(signer)
+      while (!client.isConnected()) await new Promise((resolve) => setTimeout(resolve, 10))
+
+      const delivered = nextMessage(signer, (m) => m.id === 'req-drop')
+      const outcome = client.request({ id: 'req-drop', type: 'send_transaction', chain: 'mainnet', data: {} })
+      await delivered
+
+      client.ws.close()
+      await expect(outcome).rejects.toThrow(/outcome is unknown/)
+
+      await client.stop()
+    })
+  })
+
+  it('routes to the newest page with an account, not a forgotten older one', async () => {
+    const relay = await startRelay(4134)
+    const older = await connect(relay.getPort(), { token: SIGNER_TOKEN, role: 'signer', address: '0xold' })
+    const newer = await connect(relay.getPort(), { token: SIGNER_TOKEN, role: 'signer', address: '0xnew' })
+    const requester = await connect(relay.getPort(), { token: REQUESTER_TOKEN, role: 'requester' })
+    sockets.push(older, newer, requester)
+
+    expect(await nextMessage(requester, (m) => m.type === 'status' && m.signers === 2)).toMatchObject({ address: '0xnew' })
+
+    const offeredTo = new Promise<string>((resolve) => {
+      older.on('message', (d: Buffer) => JSON.parse(d.toString()).id === 'req-n' && resolve('older'))
+      newer.on('message', (d: Buffer) => JSON.parse(d.toString()).id === 'req-n' && resolve('newer'))
+    })
+    requester.send(JSON.stringify({ id: 'req-n', type: 'send_transaction', chain: 'mainnet', data: {} }))
+    expect(await offeredTo).toBe('newer')
+  })
+
+  it('drops a page that stops answering pings, failing what was routed to it', async () => {
+    const relay = new WalletRelay({ port: 4135, token: TOKEN })
+    relay.heartbeatInterval = 50
+    relays.push(relay)
+    await relay.start()
+
+    // A laptop gone to sleep: the socket stays open but nothing answers.
+    const asleep = new WebSocket('ws://127.0.0.1:4135', { autoPong: false })
+    sockets.push(asleep)
+    await new Promise<void>((resolve) => asleep.once('open', () => resolve()))
+    asleep.send(JSON.stringify({ token: SIGNER_TOKEN, role: 'signer', address: '0xabc' }))
+
+    const requester = await connect(4135, { token: REQUESTER_TOKEN, role: 'requester' })
+    sockets.push(requester)
+    await nextMessage(requester, (m) => m.type === 'status' && m.signers === 1)
+
+    const answer = nextMessage(requester, (m) => m.id === 'req-dead')
+    const gone = nextMessage(requester, (m) => m.type === 'status' && m.pages === 0)
+    requester.send(JSON.stringify({ id: 'req-dead', type: 'send_transaction', chain: 'mainnet', data: {} }))
+    expect(await answer).toMatchObject({ success: false, error: expect.stringMatching(/outcome is unknown/) })
+    await gone
+  })
+
+  it('closes connections past the process-wide cap', async () => {
+    const relay = await startRelay(4136)
+    relay.maxSockets = 2
+
+    const open = () => {
+      const ws = new WebSocket(`ws://127.0.0.1:${relay.getPort()}`)
+      sockets.push(ws)
+      return ws
+    }
+    // Never handshaken, so no room counts them — only the cap does.
+    await Promise.all([open(), open()].map((ws) => new Promise((resolve) => ws.once('open', resolve))))
+
+    const third = open()
+    expect(await new Promise((resolve) => third.once('close', resolve))).toBe(1013)
+  })
+
+  it('serves the page with a CSP that forbids inline script and framing', async () => {
+    const relay = await startRelay(4137)
+    const page = await fetch(`http://127.0.0.1:${relay.getPort()}/`)
+
+    const csp = page.headers.get('content-security-policy')
+    expect(csp).toContain("script-src 'self'")
+    expect(csp).toContain("frame-ancestors 'none'")
+    expect(page.headers.get('x-frame-options')).toBe('DENY')
+    expect(await page.text()).not.toMatch(/\son\w+=/)
+
+    // Same-origin page, so nothing else needs CORS.
+    const health = await fetch(`http://127.0.0.1:${relay.getPort()}/health`)
+    expect(health.headers.get('access-control-allow-origin')).toBeNull()
+  })
+
+  it('accepts its own page on a server it was attached to, and nothing else', async () => {
+    const app = (await import('express')).default()
+    const server = createServer(app)
+    blockers.push(server)
+    await new Promise<void>((resolve) => server.listen(4138, '127.0.0.1', resolve))
+
+    // No publicUrl: the page's origin is the host server's port, not the relay's default.
+    const relay = new WalletRelay({ token: TOKEN })
+    relays.push(relay)
+    relay.attach(server, (relayApp) => app.use(relayApp))
+
+    const page = await fetch('http://127.0.0.1:4138/')
+    expect(page.headers.get('content-security-policy')).toContain("frame-ancestors 'none'")
+
+    const handshake = (origin: string) => {
+      const ws = new WebSocket('ws://127.0.0.1:4138', { origin })
+      sockets.push(ws)
+      return new Promise((resolve) => {
+        ws.once('open', () => ws.send(JSON.stringify({ token: SIGNER_TOKEN, role: 'signer' })))
+        ws.once('message', () => resolve('accepted'))
+        ws.once('close', (code) => resolve(code))
+      })
+    }
+    expect(await handshake('http://127.0.0.1:4138')).toBe('accepted')
+    expect(await handshake('https://evil.example')).toBe(4003)
+  })
 })

@@ -7,11 +7,15 @@ import { connectWallet, restoreConnection, toggleDarkMode } from './wallet.js'
 
 /**
  * The wiring. Everything else is a module of its own, so this file is only the order things
- * happen in and the handful of names the page's onclick attributes reach for.
+ * happen in and which button does what.
  */
 
-// A module has no globals, and the page wires these four from onclick attributes.
-Object.assign(window, { connectWallet, enableNotifications, toggleChainDropdown, toggleDarkMode })
+// Here rather than in onclick attributes: the page's CSP allows no inline script.
+document.getElementById('chainBadge').addEventListener('click', toggleChainDropdown)
+document.getElementById('chainDropdown').addEventListener('click', (event) => event.stopPropagation())
+document.getElementById('notifyBtn').addEventListener('click', enableNotifications)
+document.getElementById('themeBtn').addEventListener('click', toggleDarkMode)
+document.getElementById('connectBtn').addEventListener('click', connectWallet)
 
 window.addEventListener('load', async () => {
   // Attach before the wallet is connected, so the MCP server knows this tab exists and

@@ -1,6 +1,6 @@
 // @ts-check
 import { switchToChain } from './chains.js'
-import { queue, renderRequests } from './requests.js'
+import { cancelRequest, clearRequests, queue, renderRequests } from './requests.js'
 import { state } from './state.js'
 import { announceRequest, log, parseError, showStatus } from './ui.js'
 
@@ -51,11 +51,16 @@ export function connectWebSocket() {
 
   state.ws.onmessage = async (event) => {
     try {
-      /** @type {import('../src/protocol.js').TransactionRequest | import('../src/protocol.js').ReadyMessage} */
+      /** @type {import('../src/protocol.js').TransactionRequest | import('../src/protocol.js').ReadyMessage | import('../src/protocol.js').CancelMessage} */
       const message = JSON.parse(event.data)
       if (message.type === 'ready') return
+      if (message.type === 'cancel') {
+        cancelRequest(message.id)
+        return
+      }
 
       queue.add(message)
+      if (message.expiresAt) setTimeout(() => cancelRequest(message.id), Math.max(0, message.expiresAt - Date.now()))
       log(`Received ${message.type} request on ${message.chain}`, 'info')
 
       // Announce before anything that can block. Switching chains opens a wallet popup,
@@ -86,11 +91,25 @@ export function connectWebSocket() {
   }
 
   state.ws.onclose = (event) => {
+    // Whatever was waiting was routed through this socket; an answer has nowhere to go now.
+    clearRequests()
+
     // 4001 = relay rejected the handshake; retrying with the same token is pointless.
     if (event.code === 4001) {
       sessionStorage.removeItem('relayToken')
       log(`Relay rejected this connection: ${event.reason}`, 'error')
       showStatus('Not paired', 'The pairing token was rejected. Reopen the wallet link from the MCP server.', 'error')
+      return
+    }
+
+    // 4003 = this page's origin is not one the relay serves; no retry will change that.
+    if (event.code === 4003) {
+      log(`Relay refused this page's origin: ${event.reason}`, 'error')
+      showStatus(
+        'Wrong address',
+        'The relay does not accept this page from here. Open the wallet link from the MCP server.',
+        'error'
+      )
       return
     }
 

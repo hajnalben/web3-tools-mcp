@@ -10,6 +10,13 @@ import { HOSTED } from './hosted.js'
 const REQUEST_TIMEOUT = 300_000
 
 /**
+ * Past this point the page may have signed and broadcast without the answer reaching us, so
+ * a failure is not a rejection: retrying blindly could send the same thing twice.
+ */
+const OUTCOME_UNKNOWN =
+  'The outcome is unknown — it may still have been signed or broadcast. Check the wallet or a block explorer before retrying.'
+
+/**
  * How long a client with nothing in flight keeps its socket. A hosted server makes one per
  * person who ever signed, and without this each would hold a relay connection for the life
  * of the process. The next call reconnects.
@@ -94,6 +101,7 @@ export class WalletClient {
   /** Instance fields so tests can shorten the waits instead of sitting out the real ones. */
   private signerWaitTimeout = SIGNER_WAIT_TIMEOUT
   private idleTimeout = IDLE_TIMEOUT
+  private requestTimeout = REQUEST_TIMEOUT
 
   private readonly remoteUrl = process.env.WALLET_SERVER_URL
   private readonly remoteToken = process.env.WALLET_TOKEN
@@ -234,6 +242,10 @@ export class WalletClient {
         this.signerAddress = undefined
         this.pageUrl = undefined
         this.pageAgent = undefined
+        for (const [id, pending] of this.pending) {
+          this.pending.delete(id)
+          pending.reject(new Error(`Lost the connection to the wallet relay before the wallet answered. ${OUTCOME_UNKNOWN}`))
+        }
       })
     })
   }
@@ -325,14 +337,16 @@ export class WalletClient {
     return new Promise((resolve, reject) => {
       this.pending.set(request.id, { resolve, reject })
       this.rearmIdle()
-      ws.send(JSON.stringify(request))
+      ws.send(JSON.stringify({ ...request, expiresAt: Date.now() + this.requestTimeout }))
 
       setTimeout(() => {
         if (this.pending.delete(request.id)) {
           this.rearmIdle()
-          reject(new Error('Transaction request timed out'))
+          // So the page stops offering it; its own expiresAt covers a cancel that never lands.
+          if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'cancel', id: request.id }))
+          reject(new Error(`Wallet request timed out. ${OUTCOME_UNKNOWN}`))
         }
-      }, REQUEST_TIMEOUT)
+      }, this.requestTimeout)
     })
   }
 

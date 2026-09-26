@@ -52,12 +52,18 @@ export default {
         }
 
         if (request.state === 'failed') {
+          // Only an explicit rejection proves nothing was signed. A timeout or a dropped
+          // connection can land after the wallet signed and broadcast.
+          const rejected = request.stage === 'approval' && /rejected|denied/i.test(request.error ?? '')
           return formatResponse({
             success: false,
-            status: 'rejected_or_failed',
+            status: rejected ? 'rejected' : 'outcome_unknown',
             what: request.summary,
             error: request.error,
-            message: 'Nothing was signed. The wallet rejected it, or it expired before anybody approved.'
+            ...(request.txHash && { transactionHash: request.txHash }),
+            message: rejected
+              ? 'The wallet rejected it. Nothing was signed.'
+              : 'It did not complete here, but it may still have been signed or broadcast. Do not retry until the wallet or a block explorer shows it did not go through.'
           })
         }
 

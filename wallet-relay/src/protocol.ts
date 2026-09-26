@@ -52,6 +52,12 @@ interface BaseRequest {
   id: string
   chain: string
   preview?: TxPreview
+  /**
+   * Epoch ms after which the requester has stopped waiting. Stamped by the client when it
+   * sends; a page must not sign past it, since nobody would receive the answer and a retry
+   * could sign the same thing twice.
+   */
+  expiresAt?: number
 }
 
 /**
@@ -69,6 +75,15 @@ export interface TransactionResponse {
   success: boolean
   result?: unknown
   error?: string
+}
+
+/**
+ * The requester has given up on a request: sent by the requester when it times out, and by
+ * the relay to the signer whenever it drops a route. The page must stop offering it.
+ */
+export interface CancelMessage {
+  type: 'cancel'
+  id: string
 }
 
 /** Sent to a signer once its handshake is accepted, before any request arrives. */

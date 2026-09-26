@@ -1,4 +1,5 @@
 // @ts-check
+import { CHAIN_CONFIGS } from './chains.js'
 import { html } from './html.js'
 import { state } from './state.js'
 
@@ -99,6 +100,33 @@ export function nativeAmount(value) {
   return fraction ? `${wei / 10n ** 18n}.${fraction}` : `${wei / 10n ** 18n}`
 }
 
+/**
+ * The message as personal_sign takes it: 0x-hex of its bytes. A server older than that
+ * convention sends plain text, which is encoded here rather than left to each wallet's guess.
+ *
+ * @param {string} message
+ */
+export function messageHex(message) {
+  if (/^0x([0-9a-fA-F]{2})*$/.test(message)) return message
+  return `0x${[...new TextEncoder().encode(message)].map((byte) => byte.toString(16).padStart(2, '0')).join('')}`
+}
+
+/**
+ * What the user reads before signing: the text the bytes spell, or the hex itself when they
+ * are not UTF-8, so nothing unreadable is dressed up as something readable.
+ *
+ * @param {string} message
+ */
+export function messageText(message) {
+  const hex = messageHex(message)
+  const bytes = new Uint8Array((hex.length - 2) / 2).map((_, i) => parseInt(hex.slice(2 + i * 2, 4 + i * 2), 16))
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+  } catch {
+    return hex
+  }
+}
+
 export function Request({ request, onApprove, onReject }) {
   const failed = request.preview?.simulation && !request.preview.simulation.success
 
@@ -116,14 +144,18 @@ export function Request({ request, onApprove, onReject }) {
 export function RequestDetails({ request }) {
   const data = request.data
   const preview = request.preview
+  // From this page, never the request: an explorer the requester names could be any URL.
+  const chain = CHAIN_CONFIGS[request.chain]
 
-  if (request.type === 'sign_message') return html`<${Param} name="Message">${data.message}<//>`
+  if (request.type === 'sign_message') return html`<${Param} name="Message">${messageText(data.message)}<//>`
   if (request.type !== 'send_transaction') return null
 
   const decoded = preview?.decoded
-  const explorer = preview?.explorer
+  const explorer = chain?.explorer
 
   return html`
+    <${Param} name="Chain">${chain?.name ?? request.chain}<//>
+
     ${
       decoded &&
       // The registry says what the call means ("Supply"); the function name is the detail.
@@ -151,7 +183,7 @@ export function RequestDetails({ request }) {
     ${
       data.value &&
       data.value !== '0x0' &&
-      html`<${Param} name="Value">${nativeAmount(data.value)} ${state.chainName || 'native'}<//>`
+      html`<${Param} name="Value">${nativeAmount(data.value)} ${chain?.symbol ?? 'native'}<//>`
     }
 
     ${(decoded?.fields ?? []).map(

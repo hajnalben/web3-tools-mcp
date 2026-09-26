@@ -1,17 +1,19 @@
+#!/usr/bin/env node
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto'
+import { realpathSync } from 'node:fs'
 import { createServer, type Server } from 'node:http'
 import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import cors from 'cors'
 import express from 'express'
 import { WebSocket, WebSocketServer } from 'ws'
-import type { TransactionRequest, TransactionResponse } from './protocol.js'
+import type { CancelMessage, TransactionRequest, TransactionResponse } from './protocol.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
 // Defined next door so the signing page can be checked against the same shapes, and
 // re-exported so the package's consumers see no difference.
 export type {
+  CancelMessage,
   ReadyMessage,
   SendTransactionData,
   SignMessageData,
@@ -133,6 +135,28 @@ const MAX_PAYLOAD = 512 * 1024
  */
 const MAX_PER_ROOM = 16
 
+/**
+ * Sockets the whole process may hold, handshaken or not. MAX_PER_ROOM only counts sockets
+ * that authenticated, so without this anyone could park connections until the handshake
+ * timeout and hold every descriptor we have.
+ */
+const MAX_SOCKETS = 256
+
+/** Proxies in front of a hosted relay close idle sockets; a ping keeps them warm. */
+const HEARTBEAT_INTERVAL = 30_000
+
+/**
+ * The signing page is the one place keys are used, so it gets no inline script, no third
+ * party script, and cannot be framed by another site to click-jack an approval.
+ */
+const PAGE_HEADERS = {
+  'Content-Security-Policy':
+    "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; " +
+    "connect-src 'self' ws: wss:; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+  'X-Frame-Options': 'DENY',
+  'X-Content-Type-Options': 'nosniff'
+}
+
 /** Ports a local relay may occupy, 3456 upward. Requesters scan the same span. */
 export const LOCAL_PORT_ATTEMPTS = 5
 
@@ -151,6 +175,11 @@ export class WalletRelay {
   private borrowedServer = false
   private wss: WebSocketServer | null = null
   private heartbeat: NodeJS.Timeout | null = null
+  /** Sockets that answered the last ping; one missing from here at the next is dead. */
+  private alive = new WeakSet<WebSocket>()
+  /** Instance fields so tests can reach these without hundreds of sockets or a long wait. */
+  private maxSockets = MAX_SOCKETS
+  private heartbeatInterval = HEARTBEAT_INTERVAL
   private signers = new Map<WebSocket, { room: Room; address?: string; url?: string; agent?: string }>()
   private requesters = new Map<WebSocket, Room>()
   private routes = new Map<string, { requester: WebSocket; signer: WebSocket }>()
@@ -175,8 +204,9 @@ export class WalletRelay {
     this.resolveRoom = options.rooms ?? signedRooms(this.token)
 
     this.app = express()
-    this.app.use(cors())
-    this.app.use(express.static(join(__dirname, '..', 'public'), { index: 'wallet.html' }))
+    this.app.use(
+      express.static(join(__dirname, '..', 'public'), { index: 'wallet.html', setHeaders: (res) => res.set(PAGE_HEADERS) })
+    )
     this.app.get('/health', (_req, res) => {
       res.json({ status: 'ok', signers: this.signers.size, requesters: this.requesters.size, pending: this.routes.size })
     })
@@ -194,14 +224,34 @@ export class WalletRelay {
 
     mount(this.app)
     this.httpServer = server
-    this.wss = new WebSocketServer({ server, maxPayload: MAX_PAYLOAD })
-    this.wss.on('connection', (ws, req) => this.onConnection(ws, req.headers['user-agent'], req.headers.origin))
-    this.heartbeat = setInterval(() => {
-      for (const ws of this.wss?.clients ?? []) ws.ping()
-    }, 30_000)
-    this.heartbeat.unref()
+    this.serve(server)
+    // The page's origin carries the host's port, not ours.
+    const adoptPort = () => {
+      const address = server.address()
+      if (address && typeof address === 'object') this.port = address.port
+    }
+    if (server.listening) adoptPort()
+    else server.once('listening', adoptPort)
     // The caller owns this server's lifetime, so stop() must not close it.
     this.borrowedServer = true
+  }
+
+  private serve(server: Server) {
+    this.wss = new WebSocketServer({ server, maxPayload: MAX_PAYLOAD })
+    this.wss.on('connection', (ws, req) => this.onConnection(ws, req.headers['user-agent'], req.headers.origin))
+    // A page whose laptop went to sleep never sends a close, and a request routed to it
+    // would sit there until the requester gave up; drop whatever missed the last ping.
+    this.heartbeat = setInterval(() => {
+      for (const ws of this.wss?.clients ?? []) {
+        if (!this.alive.has(ws)) {
+          ws.terminate()
+          continue
+        }
+        this.alive.delete(ws)
+        ws.ping()
+      }
+    }, this.heartbeatInterval)
+    this.heartbeat.unref()
   }
 
   async start(): Promise<void> {
@@ -215,13 +265,7 @@ export class WalletRelay {
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       try {
         this.httpServer = await this.listen(this.port)
-        this.wss = new WebSocketServer({ server: this.httpServer, maxPayload: MAX_PAYLOAD })
-        this.wss.on('connection', (ws, req) => this.onConnection(ws, req.headers['user-agent'], req.headers.origin))
-        // Proxies in front of a hosted relay close idle sockets; keep them warm.
-        this.heartbeat = setInterval(() => {
-          for (const ws of this.wss?.clients ?? []) ws.ping()
-        }, 30_000)
-        this.heartbeat.unref()
+        this.serve(this.httpServer)
         console.error(`[Wallet] Relay listening on http://${this.host}:${this.port}`)
         return
       } catch (error) {
@@ -274,6 +318,14 @@ export class WalletRelay {
   }
 
   private onConnection(ws: WebSocket, userAgent?: string, origin?: string) {
+    if ((this.wss?.clients.size ?? 0) > this.maxSockets) {
+      ws.close(1013, 'too many connections')
+      return
+    }
+
+    this.alive.add(ws)
+    ws.on('pong', () => this.alive.add(ws))
+
     if (!this.isAllowedOrigin(origin)) {
       console.error(`[Wallet] Rejected connection from origin ${origin}`)
       ws.close(4003, 'forbidden origin')
@@ -360,15 +412,21 @@ export class WalletRelay {
   }
 
   private onRequesterMessage(requester: WebSocket, data: Buffer) {
-    const request = parseFrame(data) as TransactionRequest | null
+    const request = parseFrame(data) as TransactionRequest | CancelMessage | null
     if (!request || typeof request.id !== 'string') return
 
+    if (request.type === 'cancel') {
+      const route = this.routes.get(request.id)
+      if (route?.requester === requester) this.dropRoute(request.id)
+      return
+    }
+
     // Only this requester's own room: another room's wallet must never be offered the
-    // transaction, nor learn that it exists. Prefer a page that has an account there;
-    // fall back to any open page in the room.
+    // transaction, nor learn that it exists. Prefer the newest page that has an account
+    // there — an older one is likelier a forgotten tab — and fall back to any open page.
     const room = this.requesters.get(requester)
     const open = [...this.signers.entries()].filter(([ws, meta]) => meta.room === room && ws.readyState === WebSocket.OPEN)
-    const signer = (open.find(([, meta]) => meta.address) ?? open[0])?.[0]
+    const signer = (open.findLast(([, meta]) => meta.address) ?? open.at(-1))?.[0]
     if (!signer) {
       this.respond(requester, { id: request.id, success: false, error: 'No wallet connected' })
       return
@@ -413,7 +471,11 @@ export class WalletRelay {
     for (const [id, route] of this.routes) {
       if (route.signer === signer) {
         this.routes.delete(id)
-        this.respond(route.requester, { id, success: false, error: 'Wallet disconnected before responding' })
+        this.respond(route.requester, {
+          id,
+          success: false,
+          error: 'Wallet disconnected before responding. The outcome is unknown — it may still have been signed or broadcast.'
+        })
       }
     }
     if (room) this.broadcastStatus(room)
@@ -422,8 +484,17 @@ export class WalletRelay {
   private onRequesterClose(requester: WebSocket) {
     this.requesters.delete(requester)
     for (const [id, route] of this.routes) {
-      if (route.requester === requester) this.routes.delete(id)
+      if (route.requester === requester) this.dropRoute(id)
     }
+  }
+
+  /** Forget a request nobody will answer, and tell its page so it cannot still be approved. */
+  private dropRoute(id: string) {
+    const route = this.routes.get(id)
+    if (!route) return
+    this.routes.delete(id)
+    const cancel: CancelMessage = { type: 'cancel', id }
+    if (route.signer.readyState === WebSocket.OPEN) route.signer.send(JSON.stringify(cancel))
   }
 
   private respond(ws: WebSocket, response: TransactionResponse) {
@@ -432,9 +503,10 @@ export class WalletRelay {
 
   private broadcastStatus(room: Room) {
     const pages = [...this.signers.values()].filter((s) => s.room === room)
-    const address = pages.find((s) => s.address)?.address
+    // The newest, matching the page a request is routed to.
+    const address = pages.findLast((s) => s.address)?.address
     const withAccount = pages.filter((s) => s.address).length
-    const page = pages.find((s) => s.url) ?? pages[0]
+    const page = pages.findLast((s) => s.url) ?? pages.at(-1)
     const status: SignerStatus = {
       type: 'status',
       signers: withAccount,
@@ -485,8 +557,17 @@ export class WalletRelay {
   }
 }
 
+/** npx runs the bin through a symlink, which import.meta.url has already resolved. */
+function isEntryPoint(): boolean {
+  try {
+    return import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href
+  } catch {
+    return false
+  }
+}
+
 // Standalone entry point, for hosting the wallet frontend separately from the MCP server.
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (isEntryPoint()) {
   const relay = new WalletRelay()
   relay.start().then(() => {
     if (!process.env.WALLET_TOKEN) {

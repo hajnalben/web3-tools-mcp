@@ -20,7 +20,7 @@
     "src"
   ],
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=20.19.0"
   },
   "scripts": {
     "clean": "rm -rf dist",
@@ -42,15 +42,13 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/hajnalben/web3-tools-mcp.git",
-    "directory": "wallet"
+    "directory": "wallet-relay"
   },
   "dependencies": {
-    "cors": "^2.8.5",
     "express": "^5.2.1",
     "ws": "^8.18.0"
   },
   "devDependencies": {
-    "@types/cors": "^2.8.17",
     "@types/express": "^5.0.0",
     "@types/node": "^20.19.23",
     "@types/ws": "^8.5.13",

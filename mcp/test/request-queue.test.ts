@@ -67,4 +67,14 @@ describe('the requests waiting for approval', () => {
     queue.list().push(swap)
     expect(queue.size).toBe(1)
   })
+
+  it('offers nothing once the connection that carried them is gone', () => {
+    const queue = requestQueue()
+    queue.add(transfer)
+    queue.add(swap)
+
+    queue.clear()
+    expect(queue.size).toBe(0)
+    expect(queue.claim('aaa')).toBeNull()
+  })
 })

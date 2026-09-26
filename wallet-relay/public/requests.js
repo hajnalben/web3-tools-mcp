@@ -1,8 +1,8 @@
 // @ts-check
-import { requireChain } from './chains.js'
+import { CHAIN_CONFIGS, requireChain } from './chains.js'
 import { txHistory } from './history.js'
 import { html, render } from './html.js'
-import { Request } from './preview.js'
+import { messageHex, Request } from './preview.js'
 import { requestQueue } from './request-queue.js'
 import { state } from './state.js'
 import { clearRequestNotice, log, parseError, showStatus } from './ui.js'
@@ -10,6 +10,42 @@ import { clearRequestNotice, log, parseError, showStatus } from './ui.js'
 /** Everything waiting for approval, and what happens when one is answered. */
 
 export const queue = requestQueue()
+
+/**
+ * Requests the requester gave up on while their approval was already under way. The wallet
+ * dialog cannot be withdrawn, but anything not yet handed to it must not be.
+ */
+const cancelled = new Set()
+
+/**
+ * The requester stopped waiting: it timed out, went away, or the relay lost it. Approving now
+ * would sign something whose answer reaches nobody, and a retry could sign it twice.
+ *
+ * @param {string} id
+ */
+export function cancelRequest(id) {
+  cancelled.add(id)
+  if (!queue.claim(id)) return
+  log(`Request ${id.slice(0, 8)} was withdrawn before it was answered`, 'warn')
+  showStatus('Withdrawn', 'A request expired or was withdrawn before it was answered. Nothing was signed for it.', 'warning')
+  renderRequests()
+  settleNotice()
+}
+
+/** The socket is gone, and every route through it with it. */
+export function clearRequests() {
+  for (const request of queue.list()) cancelled.add(request.id)
+  queue.clear()
+  renderRequests()
+  settleNotice()
+}
+
+/** @param {import('../src/protocol.js').TransactionRequest} request */
+function assertStillWanted(request) {
+  if (cancelled.has(request.id) || (request.expiresAt && Date.now() >= request.expiresAt)) {
+    throw new Error('This request expired or was withdrawn before it was signed.')
+  }
+}
 
 /**
  * Everything waiting for approval, newest last.
@@ -83,22 +119,29 @@ export async function approveTx(id) {
       // selected. Without this a transaction previewed for one chain could be broadcast on
       // another, to the same address, where that address is some other contract entirely.
       await requireChain(request.chain)
+      assertStillWanted(request)
 
-      const txData = {
-        ...request.data,
-        from: state.account
-      }
+      // Only the fields shown for approval, and the chain id so the wallet itself refuses to
+      // sign if it has moved off the chain since.
+      const { to, value, data } = request.data
+      const txData = Object.fromEntries(
+        Object.entries({ from: state.account, to, value, data, chainId: CHAIN_CONFIGS[request.chain].chainId }).filter(
+          ([, field]) => field !== undefined
+        )
+      )
 
       result = await window.ethereum.request({
         method: 'eth_sendTransaction',
         params: [txData]
       })
     } else if (request.type === 'sign_message') {
+      assertStillWanted(request)
       result = await window.ethereum.request({
         method: 'personal_sign',
-        params: [request.data.message, state.account]
+        params: [messageHex(request.data.message), state.account]
       })
     } else if (request.type === 'sign_typed_data') {
+      assertStillWanted(request)
       result = await window.ethereum.request({
         method: 'eth_signTypedData_v4',
         params: [state.account, JSON.stringify(request.data)]

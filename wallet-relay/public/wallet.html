@@ -827,14 +827,14 @@
             </div>
 
             <div class="header-actions">
-                <div id="chainBadge" class="chain-badge" onclick="toggleChainDropdown(event)">
+                <div id="chainBadge" class="chain-badge">
                     <span class="chain-indicator"></span>
                     <span id="chainName">Not connected</span>
                     <span class="chain-arrow">▼</span>
-                    <div id="chainDropdown" class="chain-dropdown" onclick="event.stopPropagation()"></div>
+                    <div id="chainDropdown" class="chain-dropdown"></div>
                 </div>
 
-                <button type="button" id="notifyBtn" class="icon-btn hidden" onclick="enableNotifications()" title="Get notified about transaction requests" aria-label="Enable notifications">
+                <button type="button" id="notifyBtn" class="icon-btn hidden" title="Get notified about transaction requests" aria-label="Enable notifications">
                     <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                         <path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9"/>
                         <path d="M13.7 21a2 2 0 01-3.4 0"/>
@@ -847,7 +847,7 @@
                     </svg>
                 </a>
 
-                <button type="button" class="icon-btn dark-mode-toggle" onclick="toggleDarkMode()" title="Toggle theme" aria-label="Toggle theme">
+                <button type="button" id="themeBtn" class="icon-btn dark-mode-toggle" title="Toggle theme" aria-label="Toggle theme">
                     <svg class="icon-moon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
                         <path d="M21 12.8A9 9 0 1111.2 3a7 7 0 009.8 9.8z"/>
                     </svg>
@@ -861,7 +861,7 @@
 
         <div id="statusMessage" class="hidden" role="status" aria-live="polite"></div>
 
-        <button type="button" id="connectBtn" onclick="connectWallet()">Connect wallet</button>
+        <button type="button" id="connectBtn">Connect wallet</button>
 
         <section id="walletInfo" class="card wallet-info hidden">
             <div class="info-row">

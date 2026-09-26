@@ -40,6 +40,11 @@ export function requestQueue() {
       if (!found) return null
       items = items.filter((request) => request.id !== id)
       return found
+    },
+
+    /** Drop everything: nobody is left to receive an answer to any of it. */
+    clear() {
+      items = []
     }
   }
 }
