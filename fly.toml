@@ -1,7 +1,7 @@
-# Fly.io deployment for the MCP server. Signing happens on a phone over WalletConnect —
-# a hosted server has no browser to open.
+# Fly.io deployment for the MCP server. Signing reaches you on a phone paired over
+# WalletConnect, or in a browser through the signing page this server hosts at its root.
 #
-#   fly launch --no-deploy --copy-config    # pick a name and region
+#   fly launch --no-deploy --copy-config    # pick a name and region, then set MCP_PUBLIC_URL below to match
 #   fly volumes create data --size 1
 #   fly secrets set MCP_TOKEN=$(openssl rand -hex 24) WALLETCONNECT_PROJECT_ID=<id>
 #   fly deploy
@@ -16,6 +16,10 @@ primary_region = 'ams'
 
 [env]
   MCP_HTTP_PORT = '8080'
+  # What OAuth metadata and the signing link advertise; must be the URL clients reach.
+  MCP_PUBLIC_URL = 'https://web3-tools-mcp.fly.dev'
+  # Fly's edge proxy sits in front, so the client's address is one X-Forwarded-For hop back.
+  MCP_TRUST_PROXY = '1'
   # The WalletConnect pairing lives here, on the volume, so it survives deploys.
   XDG_CONFIG_HOME = '/data'
 

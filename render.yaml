@@ -1,33 +1,18 @@
 services:
-  - type: web
-    name: web3-wallet-relay
-    runtime: node
-    plan: free
-    # Only the relay workspace is installed and built — none of the MCP server's deps.
-    rootDir: wallet-relay
-    buildCommand: npm install && npm run build
-    startCommand: npm start
-    healthCheckPath: /health
-    envVars:
-      # Shared with the MCP server as WALLET_TOKEN — anyone holding it can request signatures.
-      - key: WALLET_TOKEN
-        generateValue: true
-      # Public URL of this service, used to print the pairing link.
-      - key: WALLET_PUBLIC_URL
-        sync: false
-
-  # The MCP server itself. Only useful together with WalletConnect: a hosted server has no
-  # browser to open, so a paired phone is the only way it can get anything signed.
+  # The MCP server. Signing reaches you on a phone paired over WalletConnect, or in a browser
+  # through the signing page this same service hosts at its root — the wallet relay runs
+  # in-process, so there is no second service to deploy.
   - type: web
     name: web3-tools-mcp
     runtime: node
-    # Starter rather than free: a free instance sleeps after 15 minutes, and sleeping drops
-    # the WalletConnect socket your phone pairing depends on. Free works if you accept
-    # re-waking (and a ~1 minute cold start) before the first transaction lands.
+    # A paid plan, for two reasons: a free instance sleeps after 15 minutes, and sleeping
+    # drops the WalletConnect socket your phone pairing depends on; and free instances cannot
+    # attach the disk below.
     plan: starter
     buildCommand: npm install && npm run build
-    # Render assigns PORT; MCP_HTTP_PORT is what switches stdio off.
-    startCommand: MCP_HTTP_PORT=$PORT node mcp/dist/index.js
+    # Render assigns PORT; MCP_HTTP_PORT is what switches stdio off. RENDER_EXTERNAL_URL is
+    # this service's onrender.com URL — set MCP_PUBLIC_URL to use a custom domain instead.
+    startCommand: MCP_HTTP_PORT=$PORT MCP_PUBLIC_URL=${MCP_PUBLIC_URL:-$RENDER_EXTERNAL_URL} node mcp/dist/index.js
     healthCheckPath: /health
     # Render's filesystem is ephemeral on every plan, so the WalletConnect pairing needs a
     # disk to survive a redeploy — otherwise you rescan the QR each time. A disk costs a few
@@ -41,9 +26,14 @@ services:
       # storePath() honours this, so the pairing lands on the disk above.
       - key: XDG_CONFIG_HOME
         value: /var/lib/web3-tools-mcp
-      # Required: anyone who reaches /mcp could ask your phone to sign something.
+      # Render's proxy sits in front, so the client's address is one X-Forwarded-For hop back.
+      - key: MCP_TRUST_PROXY
+        value: '1'
+      # Required: anyone who reaches /mcp could ask your wallet to sign something.
       - key: MCP_TOKEN
         generateValue: true
+      - key: MCP_PUBLIC_URL
+        sync: false
       - key: WALLETCONNECT_PROJECT_ID
         sync: false
       # Alternative to the disk, for hosts that have no volumes (or a free plan here).

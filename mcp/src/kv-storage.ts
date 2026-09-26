@@ -15,7 +15,8 @@ export interface KeyValueStorage {
   getKeys(): Promise<string[]>
   getEntries<T = unknown>(): Promise<[string, T][]>
   getItem<T = unknown>(key: string): Promise<T | undefined>
-  setItem<T = unknown>(key: string, value: T): Promise<void>
+  /** `ttl` (seconds) expires just this field, where the backend can. */
+  setItem<T = unknown>(key: string, value: T, ttl?: number): Promise<void>
   removeItem(key: string): Promise<void>
 }
 
@@ -30,7 +31,8 @@ class RedisKeyValueStorage implements KeyValueStorage {
     const response = await fetch(this.url, {
       method: 'POST',
       headers: { authorization: `Bearer ${this.token}`, 'content-type': 'application/json' },
-      body: JSON.stringify(parts)
+      body: JSON.stringify(parts),
+      signal: AbortSignal.timeout(5000)
     })
 
     if (!response.ok) {
@@ -62,8 +64,9 @@ class RedisKeyValueStorage implements KeyValueStorage {
     return value == null ? undefined : (JSON.parse(value) as T)
   }
 
-  async setItem<T = unknown>(key: string, value: T): Promise<void> {
+  async setItem<T = unknown>(key: string, value: T, ttl?: number): Promise<void> {
     await this.command('HSET', HASH_KEY, key, JSON.stringify(value))
+    if (ttl) await this.command('HEXPIRE', HASH_KEY, Math.ceil(ttl), 'FIELDS', 1, key)
   }
 
   async removeItem(key: string): Promise<void> {

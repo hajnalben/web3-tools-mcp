@@ -56,7 +56,7 @@ export async function startHttpServer(options: HttpServerOptions): Promise<{ url
     )
   }
 
-  const port = options.port ?? Number(process.env.MCP_HTTP_PORT) ?? DEFAULT_PORT
+  const port = options.port ?? (Number(process.env.MCP_HTTP_PORT) || DEFAULT_PORT)
   const host = options.host ?? process.env.MCP_HTTP_HOST ?? '0.0.0.0'
   const token = options.token ?? process.env.MCP_TOKEN
 
@@ -72,6 +72,11 @@ export async function startHttpServer(options: HttpServerOptions): Promise<{ url
   const provider = options.provider ?? new SingleUserOAuthProvider(token as string)
 
   const app = express()
+  // The auth routes rate-limit per req.ip, which behind a platform proxy is the proxy's own
+  // address — every caller would share one bucket. Only trust as many hops as are really
+  // in front, or anyone could pick their own bucket with a forged X-Forwarded-For.
+  const proxyHops = Number(process.env.MCP_TRUST_PROXY)
+  if (proxyHops) app.set('trust proxy', proxyHops)
   app.use(express.json())
   // The login form posts a token, so the authorize route needs form bodies too.
   app.use(express.urlencoded({ extended: false }))
@@ -124,8 +129,8 @@ export async function startHttpServer(options: HttpServerOptions): Promise<{ url
   })
 
   const server = await new Promise<ReturnType<typeof app.listen>>((resolve, reject) => {
-    const listening = app.listen(port, host, () => resolve(listening))
-    listening.once('error', reject)
+    // Express 5 hands a listen error to this callback rather than leaving it to 'error'.
+    const listening = app.listen(port, host, (error?: Error) => (error ? reject(error) : resolve(listening)))
   })
 
   // The signing page rides on this same server, so a hosted deployment can offer browser

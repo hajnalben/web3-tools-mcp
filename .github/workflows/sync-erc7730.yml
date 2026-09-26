@@ -5,6 +5,10 @@ on:
     - cron: '0 0 * * 1' # Mondays, 00:00 UTC
   workflow_dispatch:
 
+permissions:
+  contents: write
+  pull-requests: write
+
 jobs:
   sync:
     runs-on: ubuntu-latest
@@ -15,7 +19,7 @@ jobs:
         with:
           node-version: 22
 
-      - run: npm ci
+      - run: npm ci --ignore-scripts
 
       - name: Clone the registry
         run: git clone --depth 1 https://github.com/LedgerHQ/clear-signing-erc7730-registry.git /tmp/erc7730
@@ -24,7 +28,7 @@ jobs:
         run: node mcp/scripts/build-erc7730-index.mjs /tmp/erc7730/registry mcp/src/erc7730-index.json.gz
 
       - name: Open a PR when descriptors changed
-        uses: peter-evans/create-pull-request@v6
+        uses: peter-evans/create-pull-request@22a9089034f40e5a961c8808d113e2c98fb63676 # v7.0.11
         with:
           add-paths: mcp/src/erc7730-index.json.gz
           branch: sync/erc7730

@@ -42,6 +42,8 @@ ENVIRONMENT VARIABLES:
   WALLETCONNECT_PROJECT_ID      Alternative to --walletconnect-project-id
   CUSTOM_RPC                    Alternative to --custom-rpc
   MCP_HTTP_PORT                 Serve MCP over HTTP on this port instead of stdio
+  MCP_HTTP_HOST                 Interface the HTTP server binds to (default: 0.0.0.0)
+  MCP_TRUST_PROXY               Proxy hops in front of the server, e.g. 1 on Fly/Render
   MCP_HOSTED                    Apply the hosted guards without the CLI (library use)
   MCP_TOKEN                     Bearer token required by the HTTP transport
   MCP_PUBLIC_URL                Public URL of this server, advertised in OAuth metadata
@@ -153,7 +155,9 @@ async function main() {
     await wallet.connect().catch((error) => {
       console.error('[MCP] Could not join the wallet relay:', error.message)
     })
-    if (walletUrl) console.error(`Wallet interface available at ${walletUrl}`)
+    // Without its #t= token: platform logs are read by more people than may sign. The full
+    // link comes from wallet_status, which already requires MCP_TOKEN.
+    if (walletUrl) console.error(`Wallet interface available at ${walletUrl.split('#')[0]} (link with token via wallet_status)`)
 
     if (!config.walletConnectProjectId) {
       console.error('[MCP] No WalletConnect project id — phone signing is unavailable on this server')

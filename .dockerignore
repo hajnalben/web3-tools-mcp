@@ -1,8 +1,10 @@
-node_modules
-dist
-wallet-relay/dist
+**/node_modules
+**/dist
+**/.env
+**/.env.*
+**/test
+**/.DS_Store
 .git
-.env
-test
+.github
 .serena
 session-store.db

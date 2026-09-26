@@ -1,6 +1,14 @@
+import { mkdtempSync } from 'node:fs'
 import { createServer, type Server } from 'node:http'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { getKeyValueStorage } from '../src/kv-storage.js'
+
+// Starting a server opens the OAuth store; keep it out of the real config dir and any Redis in .env.
+process.env.XDG_CONFIG_HOME = mkdtempSync(join(tmpdir(), 'http-server-test-'))
+delete process.env.UPSTASH_REDIS_REST_URL
+delete process.env.UPSTASH_REDIS_REST_TOKEN
 
 // The hosted flag is read when the package loads, and the setup file has loaded it
 // already — so set it and load the server afresh.
@@ -61,6 +69,44 @@ describe('MCP over HTTP', () => {
     expect(authorized.status).toBe(200)
     const body = await authorized.json()
     expect(body.result.serverInfo.name).toBe('web3-tools-mcp')
+  })
+
+  it('falls back to the default port when MCP_HTTP_PORT is unset', async () => {
+    const previous = process.env.MCP_HTTP_PORT
+    delete process.env.MCP_HTTP_PORT
+    try {
+      // A local server may already hold the default port; the refusal still names it.
+      const port = await startHttpServer({ host: '127.0.0.1', token: TOKEN, createMcpServer: () => ({}) as never }).then(
+        (started) => started.port,
+        (error) => error.port
+      )
+      expect(port).toBe(3457)
+    } finally {
+      if (previous !== undefined) process.env.MCP_HTTP_PORT = previous
+    }
+  })
+
+  it('takes the client address from X-Forwarded-For only when told how many proxies to trust', async () => {
+    const ipOf = async (port: number) => {
+      await startHttpServer({
+        port,
+        host: '127.0.0.1',
+        token: TOKEN,
+        createMcpServer: () => ({}) as never,
+        routes: (app) => app.get('/ip', (req, res) => res.send(req.ip))
+      })
+      return (await fetch(`http://127.0.0.1:${port}/ip`, { headers: { 'x-forwarded-for': '203.0.113.7' } })).text()
+    }
+
+    delete process.env.MCP_TRUST_PROXY
+    expect(await ipOf(4203)).not.toBe('203.0.113.7')
+
+    process.env.MCP_TRUST_PROXY = '1'
+    try {
+      expect(await ipOf(4204)).toBe('203.0.113.7')
+    } finally {
+      delete process.env.MCP_TRUST_PROXY
+    }
   })
 })
 

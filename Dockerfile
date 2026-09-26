@@ -12,7 +12,7 @@ COPY wallet-relay ./wallet-relay
 # Build explicitly, after install, so the workspaces are already linked. mcp cannot build
 # from a prepare script: npm runs those before node_modules/web3-wallet-relay exists, and
 # tsc then cannot resolve the relay's types.
-RUN npm ci && npm run build
+RUN npm ci && npm run build && npm prune --omit=dev
 
 FROM node:22-slim AS runtime
 

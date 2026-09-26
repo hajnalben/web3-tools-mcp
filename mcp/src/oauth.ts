@@ -3,7 +3,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { OAuthRegisteredClientsStore } from '@modelcontextprotocol/sdk/server/auth/clients.js'
-import { InvalidTokenError } from '@modelcontextprotocol/sdk/server/auth/errors.js'
+import { InvalidGrantError, InvalidTokenError } from '@modelcontextprotocol/sdk/server/auth/errors.js'
 import type { AuthorizationParams, OAuthServerProvider } from '@modelcontextprotocol/sdk/server/auth/provider.js'
 import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js'
 import type { OAuthClientInformationFull, OAuthTokens } from '@modelcontextprotocol/sdk/shared/auth.js'
@@ -30,6 +30,7 @@ interface StoredCode {
   resource?: string
   scopes: string[]
   address?: string
+  credential?: string
   expiresAt: number
 }
 
@@ -37,7 +38,15 @@ interface StoredToken {
   clientId: string
   scopes: string[]
   address?: string
+  credential?: string
   expiresAt: number
+}
+
+/** Codes expire in milliseconds, tokens in seconds — the unit OAuth reports them in. */
+function expired(key: string, value: unknown): boolean {
+  const expiresAt = (value as { expiresAt?: number } | undefined)?.expiresAt
+  if (expiresAt === undefined) return false
+  return (key.startsWith('code:') ? expiresAt : expiresAt * 1000) < Date.now()
 }
 
 /** Redis where configured, a JSON file otherwise — issued tokens must outlive a restart. */
@@ -69,10 +78,12 @@ class Store {
     return this.read()[key] as T | undefined
   }
 
-  async set<T>(key: string, value: T): Promise<void> {
-    if (this.redis) return this.redis.setItem(`oauth:${key}`, value)
+  /** `ttl` in seconds lets Redis drop the entry itself; the file is pruned on every write. */
+  async set<T>(key: string, value: T, ttl?: number): Promise<void> {
+    if (this.redis) return this.redis.setItem(`oauth:${key}`, value, ttl)
     const data = this.read()
     data[key] = value
+    for (const [name, stored] of Object.entries(data)) if (expired(name, stored)) delete data[name]
     writeFileSync(this.file, JSON.stringify(data), { mode: 0o600 })
   }
 
@@ -104,8 +115,12 @@ function constantTimeEquals(a: string, b: string): boolean {
  * the deployment rather than anybody in particular.
  */
 export interface Login {
-  /** The page served at GET /authorize. `hidden` must be placed inside its form. */
-  page(hidden: string, error?: string): string | Promise<string>
+  /**
+   * The page served at GET /authorize. `hidden` must be placed inside its form. `request`
+   * names who is asking and where the code will be sent, so a person can tell a phishing
+   * client from their own; like `error`, its values arrive HTML-escaped.
+   */
+  page(hidden: string, error?: string, request?: { client: string; redirectHost: string }): string | Promise<string>
   /** Reads the posted form. An `error` re-renders the page; an `address` names the person. */
   identify(form: Record<string, string>): Promise<{ address?: string; error?: string }>
   /**
@@ -113,6 +128,11 @@ export interface Login {
    * page, so a credential can never be echoed back into the HTML.
    */
   owns?: string[]
+  /**
+   * A shared secret this login checks against, if it has one. Everything issued is bound to
+   * it, so rotating the secret revokes every code and token handed out under the old one.
+   */
+  credential?: string
 }
 
 const PAGE_STYLE = `
@@ -131,13 +151,15 @@ const PAGE_STYLE = `
 export function tokenLogin(accessToken: string): Login {
   return {
     owns: ['token'],
-    page: (hidden, error) => `<!doctype html>
+    credential: accessToken,
+    page: (hidden, error, request) => `<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Connect to web3-tools-mcp</title>
 <style>${PAGE_STYLE}
 </style>
 <h1>Connect to web3-tools-mcp</h1>
+${request ? `<p><strong>${request.client}</strong> is asking for access, and will be sent back to <strong>${request.redirectHost}</strong>.</p>` : ''}
 <p>Paste this server's access token to authorise the client.</p>
 ${error ? `<p class="error">${error}</p>` : ''}
 <form method="post">
@@ -155,6 +177,8 @@ ${error ? `<p class="error">${error}</p>` : ''}
 
 export class OAuthProvider implements OAuthServerProvider {
   private store = new Store()
+  // A hash, so the secret itself never lands in the store.
+  private credential: string | undefined
 
   /**
    * `staticToken` is accepted verbatim in an Authorization header, for clients that can send
@@ -163,7 +187,9 @@ export class OAuthProvider implements OAuthServerProvider {
   constructor(
     private login: Login,
     private staticToken?: string
-  ) {}
+  ) {
+    this.credential = login.credential && createHash('sha256').update(login.credential).digest('hex').slice(0, 16)
+  }
 
   get clientsStore(): OAuthRegisteredClientsStore {
     const store = this.store
@@ -203,11 +229,21 @@ export class OAuthProvider implements OAuthServerProvider {
       .map(([name, value]) => `<input type="hidden" name="${escapeHtml(name)}" value="${escapeHtml(value)}">`)
       .join('\n  ')
 
+    const redirectTo = new URL(params.redirectUri)
+    const shown = {
+      client: escapeHtml(client.client_name || 'An unnamed client'),
+      redirectHost: escapeHtml(redirectTo.host || redirectTo.href)
+    }
+
+    // A login page that can be framed can be clickjacked into authorising somebody else.
+    res.setHeader('X-Frame-Options', 'DENY')
+    res.setHeader('Content-Security-Policy', "frame-ancestors 'none'")
+
     const render = async (status: number, error?: string) => {
       res
         .status(status)
         .setHeader('content-type', 'text/html; charset=utf-8')
-        .send(await this.login.page(hidden, error ? escapeHtml(error) : undefined))
+        .send(await this.login.page(hidden, error ? escapeHtml(error) : undefined, shown))
     }
 
     if (request.method !== 'POST') return render(200)
@@ -216,32 +252,53 @@ export class OAuthProvider implements OAuthServerProvider {
     if (identified.error) return render(401, identified.error)
 
     const code = randomBytes(24).toString('hex')
-    await this.store.set<StoredCode>(`code:${code}`, {
-      clientId: client.client_id,
-      codeChallenge: params.codeChallenge,
-      redirectUri: params.redirectUri,
-      resource: params.resource?.href,
-      scopes: params.scopes ?? [],
-      address: identified.address,
-      expiresAt: Date.now() + CODE_TTL
-    })
+    await this.store.set<StoredCode>(
+      `code:${code}`,
+      {
+        clientId: client.client_id,
+        codeChallenge: params.codeChallenge,
+        redirectUri: params.redirectUri,
+        resource: params.resource?.href,
+        scopes: params.scopes ?? [],
+        address: identified.address,
+        credential: this.credential,
+        expiresAt: Date.now() + CODE_TTL
+      },
+      CODE_TTL / 1000
+    )
 
-    const redirect = new URL(params.redirectUri)
-    redirect.searchParams.set('code', code)
-    if (params.state) redirect.searchParams.set('state', params.state)
-    res.redirect(redirect.href)
+    redirectTo.searchParams.set('code', code)
+    if (params.state) redirectTo.searchParams.set('state', params.state)
+    res.redirect(redirectTo.href)
   }
 
-  async challengeForAuthorizationCode(_client: OAuthClientInformationFull, authorizationCode: string): Promise<string> {
+  // Refusals here must be InvalidGrantError: the SDK answers anything else with a 500,
+  // where a client needs the 400 invalid_grant to know it should start the flow again.
+  private async validCode(client: OAuthClientInformationFull, authorizationCode: string): Promise<StoredCode> {
     const stored = await this.store.get<StoredCode>(`code:${authorizationCode}`)
-    if (!stored || stored.expiresAt < Date.now()) throw new Error('Authorization code is invalid or expired')
-    return stored.codeChallenge
+    if (!stored || stored.expiresAt < Date.now() || stored.credential !== this.credential) {
+      throw new InvalidGrantError('Authorization code is invalid or expired')
+    }
+    if (stored.clientId !== client.client_id) throw new InvalidGrantError('Authorization code was issued to a different client')
+    return stored
   }
 
-  async exchangeAuthorizationCode(client: OAuthClientInformationFull, authorizationCode: string): Promise<OAuthTokens> {
-    const stored = await this.store.get<StoredCode>(`code:${authorizationCode}`)
-    if (!stored || stored.expiresAt < Date.now()) throw new Error('Authorization code is invalid or expired')
-    if (stored.clientId !== client.client_id) throw new Error('Authorization code was issued to a different client')
+  async challengeForAuthorizationCode(client: OAuthClientInformationFull, authorizationCode: string): Promise<string> {
+    return (await this.validCode(client, authorizationCode)).codeChallenge
+  }
+
+  async exchangeAuthorizationCode(
+    client: OAuthClientInformationFull,
+    authorizationCode: string,
+    _codeVerifier?: string,
+    redirectUri?: string
+  ): Promise<OAuthTokens> {
+    const stored = await this.validCode(client, authorizationCode)
+    // Optional at the token endpoint because the SDK lets a single-URI client omit it at
+    // /authorize too; when sent, it must be the one the code was issued for.
+    if (redirectUri !== undefined && redirectUri !== stored.redirectUri) {
+      throw new InvalidGrantError('redirect_uri does not match the authorization request')
+    }
 
     // One use only: a replayed code must not mint a second token.
     await this.store.remove(`code:${authorizationCode}`)
@@ -250,10 +307,11 @@ export class OAuthProvider implements OAuthServerProvider {
 
   async exchangeRefreshToken(client: OAuthClientInformationFull, refreshToken: string, scopes?: string[]): Promise<OAuthTokens> {
     const stored = await this.store.get<StoredToken>(`refresh:${refreshToken}`)
-    if (!stored) throw new Error('Refresh token is invalid')
-    if (stored.clientId !== client.client_id) throw new Error('Refresh token was issued to a different client')
+    if (!stored || stored.credential !== this.credential) throw new InvalidGrantError('Refresh token is invalid')
+    if (stored.clientId !== client.client_id) throw new InvalidGrantError('Refresh token was issued to a different client')
 
     await this.store.remove(`refresh:${refreshToken}`)
+    if (stored.expiresAt * 1000 < Date.now()) throw new InvalidGrantError('Refresh token has expired')
     // The refreshed token stays the same person's: a refresh proves possession, not identity.
     return this.issue(client.client_id, scopes ?? stored.scopes, stored.address)
   }
@@ -262,9 +320,10 @@ export class OAuthProvider implements OAuthServerProvider {
     const accessToken = randomBytes(32).toString('hex')
     const refreshToken = randomBytes(32).toString('hex')
     const expiresAt = Math.floor(Date.now() / 1000) + TOKEN_TTL
+    const stored: StoredToken = { clientId, scopes, address, credential: this.credential, expiresAt }
 
-    await this.store.set<StoredToken>(`token:${accessToken}`, { clientId, scopes, address, expiresAt })
-    await this.store.set<StoredToken>(`refresh:${refreshToken}`, { clientId, scopes, address, expiresAt })
+    await this.store.set(`token:${accessToken}`, stored, TOKEN_TTL)
+    await this.store.set(`refresh:${refreshToken}`, stored, TOKEN_TTL)
 
     return {
       access_token: accessToken,
@@ -285,7 +344,7 @@ export class OAuthProvider implements OAuthServerProvider {
     // Must be InvalidTokenError specifically: the SDK turns anything else into a 500, and
     // a client needs the 401 to know it should authenticate again.
     const stored = await this.store.get<StoredToken>(`token:${token}`)
-    if (!stored) throw new InvalidTokenError('Invalid access token')
+    if (!stored || stored.credential !== this.credential) throw new InvalidTokenError('Invalid access token')
     if (stored.expiresAt * 1000 < Date.now()) {
       await this.store.remove(`token:${token}`)
       throw new InvalidTokenError('Access token has expired')

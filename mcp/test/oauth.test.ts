@@ -1,10 +1,19 @@
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { InvalidGrantError, InvalidTokenError } from '@modelcontextprotocol/sdk/server/auth/errors.js'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { OAuthClientInformationFull } from '@modelcontextprotocol/sdk/shared/auth.js'
 import type { Response } from 'express'
-import { beforeAll, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { DEFAULT_IDENTITY, identityFrom } from '../src/context.js'
-import { type Login, OAuthProvider, pkce } from '../src/oauth.js'
+import { type Login, OAuthProvider, pkce, tokenLogin } from '../src/oauth.js'
 import { registerAllTools } from '../src/tools/index.js'
+
+// Issued codes and tokens persist; keep them out of the real config dir and any Redis in .env.
+process.env.XDG_CONFIG_HOME = mkdtempSync(join(tmpdir(), 'oauth-test-'))
+delete process.env.UPSTASH_REDIS_REST_URL
+delete process.env.UPSTASH_REDIS_REST_TOKEN
 
 // The hosted flag is read when the package loads, and the setup file has loaded it
 // already — so set it and load the server afresh.
@@ -160,7 +169,36 @@ describe('OAuth for clients that cannot send a header', () => {
         code_verifier: verifier
       })
     })
-    expect(replay.status).toBeGreaterThanOrEqual(400)
+    expect(replay.status).toBe(400)
+    expect((await replay.json()).error).toBe('invalid_grant')
+  })
+
+  it('names the client and where it will be sent, and cannot be framed', async () => {
+    const registration = await (
+      await fetch(`${BASE}/register`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          client_name: '<script>alert(1)</script>',
+          redirect_uris: ['https://callback.example/cb'],
+          token_endpoint_auth_method: 'none'
+        })
+      })
+    ).json()
+
+    const authorizeUrl = new URL(`${BASE}/authorize`)
+    authorizeUrl.searchParams.set('client_id', registration.client_id)
+    authorizeUrl.searchParams.set('response_type', 'code')
+    authorizeUrl.searchParams.set('code_challenge', pkce().challenge)
+    authorizeUrl.searchParams.set('code_challenge_method', 'S256')
+
+    const page = await fetch(authorizeUrl)
+    const html = await page.text()
+    expect(html).toContain('&lt;script&gt;alert(1)&lt;/script&gt;')
+    expect(html).not.toContain('<script>alert')
+    expect(html).toContain('callback.example')
+    expect(page.headers.get('x-frame-options')).toBe('DENY')
+    expect(page.headers.get('content-security-policy')).toContain("frame-ancestors 'none'")
   })
 
   it('still accepts the static token, so header-capable clients keep working', async () => {
@@ -261,6 +299,43 @@ describe('a login that names a person', () => {
 
     expect(sent.status).toBe(401)
     expect(sent.location).toBe('')
+  })
+
+  it('refuses a code sent back with a different redirect_uri', async () => {
+    const provider = new OAuthProvider(login('0xAbC'))
+    const code = await codeFrom(provider, { submit: '1', secret: 'open' })
+
+    await expect(provider.exchangeAuthorizationCode(CLIENT, code, undefined, 'http://evil.example/cb')).rejects.toThrow(
+      InvalidGrantError
+    )
+    await expect(provider.exchangeAuthorizationCode(CLIENT, code, undefined, 'http://localhost:9999/cb')).resolves.toBeTruthy()
+  })
+
+  describe('an expired refresh token', () => {
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('is refused', async () => {
+      const provider = new OAuthProvider(login('0xAbC'))
+      const tokens = await provider.exchangeAuthorizationCode(CLIENT, await codeFrom(provider, { submit: '1', secret: 'open' }))
+
+      vi.useFakeTimers({ toFake: ['Date'] })
+      vi.setSystemTime(Date.now() + 31 * 24 * 60 * 60 * 1000)
+      await expect(provider.exchangeRefreshToken(CLIENT, tokens.refresh_token as string)).rejects.toThrow(InvalidGrantError)
+    })
+  })
+
+  it('revokes everything issued under a token once that token is rotated', async () => {
+    const before = new OAuthProvider(tokenLogin('old-token'))
+    const tokens = await before.exchangeAuthorizationCode(CLIENT, await codeFrom(before, { submit: '1', token: 'old-token' }))
+    const pendingCode = await codeFrom(before, { submit: '1', token: 'old-token' })
+    expect(await before.verifyAccessToken(tokens.access_token)).toBeTruthy()
+
+    const after = new OAuthProvider(tokenLogin('new-token'))
+    await expect(after.verifyAccessToken(tokens.access_token)).rejects.toThrow(InvalidTokenError)
+    await expect(after.exchangeRefreshToken(CLIENT, tokens.refresh_token as string)).rejects.toThrow(InvalidGrantError)
+    await expect(after.exchangeAuthorizationCode(CLIENT, pendingCode)).rejects.toThrow(InvalidGrantError)
   })
 
   it('issues no identity for a static token, which authenticates the deployment', async () => {
