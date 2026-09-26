@@ -133,10 +133,10 @@ function decodeResult(abi: AbiFunction | undefined, data: Hex): unknown {
 }
 
 /**
- * Any RPC with eth_simulateV1: decoded return values, and native and ERC20 transfers.
+ * Any RPC with eth_simulateV1: decoded return values, and native, ERC20 and ERC721 transfers.
  *
- * ponytail: an ERC721 transfer shares ERC20's Transfer topic, so it shows up here as an
- * ERC20 transfer of 0. Tell them apart by topic count if NFT bundles matter on free keys.
+ * ponytail: ERC1155 moves tokens with TransferSingle / TransferBatch, which are not read
+ * here, so those changes are missing on this path. Parse them if 1155 bundles matter.
  */
 async function viaSimulateV1(chain: ChainName, calls: BundleCall[], blockNumber?: bigint): Promise<CallOutcome[]> {
   const client = getClientManager().getClient(chain)
@@ -160,6 +160,19 @@ async function viaSimulateV1(chain: ChainName, calls: BundleCall[], blockNumber?
         error: call.status === 'success' ? undefined : (error?.shortMessage ?? error?.message ?? 'execution reverted'),
         result: call.status === 'success' ? decodeResult(calls[index]?.abi, call.data) : undefined,
         assetChanges: transfers.map((transfer) => {
+          if (transfer.tokenId !== undefined) {
+            return {
+              assetType: 'ERC721',
+              token: transfer.token,
+              symbol: transfer.symbol,
+              tokenId: transfer.tokenId,
+              from: transfer.from,
+              to: transfer.to,
+              amount: '1',
+              rawAmount: '1'
+            }
+          }
+
           const native = transfer.token.toLowerCase() === NATIVE_TOKEN
           return {
             assetType: native ? 'NATIVE' : 'ERC20',

@@ -23,6 +23,8 @@ export interface AssetChange {
   to: string
   amount: string
   humanAmount?: string
+  /** Set for an ERC-721 transfer, which moves this one token rather than an amount. */
+  tokenId?: string
 }
 
 export interface TxPreview {
@@ -170,8 +172,22 @@ export async function enrichTransfers(
 
   return Promise.all(
     transfers.map(async (log): Promise<AssetChange> => {
-      const amount = log.data && log.data !== '0x' ? BigInt(log.data).toString() : '0'
       const meta = await tokenMeta(chain, log.address).catch(() => ({ symbol: undefined, decimals: undefined }))
+
+      // ERC-721 shares ERC-20's Transfer topic but indexes the token id as a fourth topic,
+      // leaving the data empty — read as ERC-20, a mint looks like a transfer of nothing.
+      if (log.topics.length === 4) {
+        return {
+          token: log.address,
+          symbol: meta.symbol,
+          from: topicToAddress(log.topics[1]!),
+          to: topicToAddress(log.topics[2]!),
+          amount: '1',
+          tokenId: BigInt(log.topics[3]!).toString()
+        }
+      }
+
+      const amount = log.data && log.data !== '0x' ? BigInt(log.data).toString() : '0'
       return {
         token: log.address,
         symbol: meta.symbol,

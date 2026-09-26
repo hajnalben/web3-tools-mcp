@@ -39,7 +39,7 @@ export function AddressLink({ address, label, explorer, short }) {
 
 export function AssetChange({ change, explorer }) {
   const account = (state.account || '').toLowerCase()
-  const amount = change.humanAmount ?? change.amount
+  const amount = change.tokenId !== undefined ? `#${change.tokenId}` : (change.humanAmount ?? change.amount)
   const outgoing = change.from.toLowerCase() === account
   const incoming = change.to.toLowerCase() === account
   const direction = outgoing ? 'out' : incoming ? 'in' : 'other'

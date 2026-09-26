@@ -34,7 +34,15 @@ export type TxPreview = {
     success: boolean
     error?: string
     gasEstimate?: string
-    assetChanges?: { token: string; symbol?: string; amount: string; humanAmount?: string; from: string; to: string }[]
+    assetChanges?: {
+      token: string
+      symbol?: string
+      amount: string
+      humanAmount?: string
+      tokenId?: string
+      from: string
+      to: string
+    }[]
   }
   explorer?: string
   toLabel?: string

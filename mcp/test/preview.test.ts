@@ -1,6 +1,6 @@
-import { encodeFunctionData, maxUint256, parseAbiItem, parseUnits } from 'viem'
+import { encodeFunctionData, maxUint256, pad, parseAbiItem, parseUnits, toHex } from 'viem'
 import { describe, expect, it } from 'vitest'
-import { buildTxPreview } from '../src/preview.js'
+import { buildTxPreview, enrichTransfers } from '../src/preview.js'
 import { hasProviderRpc } from './setup.js'
 
 const USDC_BASE = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913'
@@ -45,5 +45,39 @@ describe('buildTxPreview', () => {
 
     expect(preview.simulation?.success).toBe(false)
     expect(preview.simulation?.error).toBeTruthy()
+  })
+})
+
+describe('transfers read from simulation logs', () => {
+  const TRANSFER = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef'
+  const ZERO = '0x0000000000000000000000000000000000000000'
+  const OWNER = '0xe192d77e0f83e54d2a9a301257682ded62c19f6c'
+  const POOL = '0x52aa899454998be5b000ad077a46bbe360f4e497'
+
+  it('reads a four-topic Transfer as an ERC-721 token, not an ERC-20 transfer of nothing', async () => {
+    // A Fluid vault minting its position NFT: the token id is the fourth topic, the data empty.
+    const [mint] = await enrichTransfers('base', [
+      {
+        address: '0x324c5dc1fc42c7a4d43d92df1eba58a54d13bf2d',
+        topics: [TRANSFER, pad(ZERO), pad(OWNER), toHex(12639n, { size: 32 })],
+        data: '0x'
+      }
+    ])
+
+    expect(mint).toMatchObject({ tokenId: '12639', amount: '1', from: ZERO, to: OWNER })
+    expect(mint?.humanAmount).toBeUndefined()
+  })
+
+  it('still reads an ERC-20 amount from the data', async () => {
+    const [transfer] = await enrichTransfers('base', [
+      {
+        address: '0xc1CBa3fCea344f92D9239c08C0568f6F2F0ee452',
+        topics: [TRANSFER, pad(OWNER), pad(POOL)],
+        data: toHex(29700000000000000n, { size: 32 })
+      }
+    ])
+
+    expect(transfer).toMatchObject({ amount: '29700000000000000', from: OWNER, to: POOL })
+    expect(transfer?.tokenId).toBeUndefined()
   })
 })
