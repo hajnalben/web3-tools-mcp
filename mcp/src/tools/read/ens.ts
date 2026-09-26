@@ -1,9 +1,9 @@
 import { type Address, isAddress, namehash } from 'viem'
 import { normalize } from 'viem/ens'
 import { z } from 'zod'
-import { getClientManager, SUPPORTED_CHAINS } from '../../client.js'
+import { getClientManager } from '../../client.js'
 import type { ChainName } from '../../types.js'
-import { createTool, formatResponse } from '../../utils.js'
+import { createTool, formatResponse, MAX_BATCH } from '../../utils.js'
 
 // Base ENS Contract Addresses
 const BASE_ENS_CONTRACTS = {
@@ -159,32 +159,32 @@ async function getTextRecordBase(name: string, key: string): Promise<string | nu
   }
 }
 
+/** Where a name service is deployed: ENS on mainnet, Linea Names on Linea, Basenames on Base. */
+const ENS_CHAINS = ['mainnet', 'linea', 'base'] as const
+const ensChain = z
+  .enum(ENS_CHAINS)
+  .default('mainnet')
+  .describe('Where the name lives: mainnet for .eth (ENS), linea for Linea Names, base for Basenames. Defaults to mainnet.')
+
 const EnsResolveSchema = z.object({
-  chain: z
-    .enum(SUPPORTED_CHAINS)
-    .default('mainnet')
-    .describe('Blockchain network (defaults to mainnet, as ENS is primarily on Ethereum)'),
-  name: z.string().describe("ENS name to resolve to an address (e.g., 'vitalik.eth', 'example.eth')"),
-  universalResolver: z.boolean().optional().describe('Use universal resolver for cross-chain resolution (defaults to true)')
+  chain: ensChain,
+  name: z.string().describe("ENS name to resolve to an address (e.g., 'vitalik.eth', 'example.eth')")
 })
 
 const EnsReverseResolveSchema = z.object({
-  chain: z.enum(SUPPORTED_CHAINS).default('mainnet').describe('Blockchain network (defaults to mainnet)'),
-  address: z.string().describe('Ethereum address to resolve to an ENS name'),
-  universalResolver: z.boolean().optional().describe('Use universal resolver for cross-chain resolution (defaults to true)')
+  chain: ensChain,
+  address: z.string().describe('Ethereum address to resolve to an ENS name')
 })
 
 const EnsTextRecordSchema = z.object({
-  chain: z.enum(SUPPORTED_CHAINS).default('mainnet').describe('Blockchain network (defaults to mainnet)'),
+  chain: ensChain,
   name: z.string().describe('ENS name to query text records from'),
-  key: z.string().describe("Text record key (e.g., 'avatar', 'description', 'email', 'url', 'com.twitter', 'com.github')"),
-  universalResolver: z.boolean().optional().describe('Use universal resolver for cross-chain resolution (defaults to true)')
+  key: z.string().describe("Text record key (e.g., 'avatar', 'description', 'email', 'url', 'com.twitter', 'com.github')")
 })
 
 const EnsBatchResolveSchema = z.object({
-  chain: z.enum(SUPPORTED_CHAINS).default('mainnet').describe('Blockchain network (defaults to mainnet)'),
-  names: z.array(z.string()).describe('Array of ENS names to resolve to addresses in a single batch'),
-  universalResolver: z.boolean().optional().describe('Use universal resolver for cross-chain resolution (defaults to true)')
+  chain: ensChain,
+  names: z.array(z.string()).max(MAX_BATCH).describe('Array of ENS names to resolve to addresses in a single batch')
 })
 
 export default {
@@ -207,8 +207,7 @@ export default {
         const client = clientManager.getClient(args.chain as ChainName)
 
         address = await client.getEnsAddress({
-          name: normalizedName,
-          universalResolverAddress: args.universalResolver !== false ? undefined : undefined
+          name: normalizedName
         })
       }
 
@@ -253,8 +252,7 @@ export default {
         const client = clientManager.getClient(args.chain as ChainName)
 
         ensName = await client.getEnsName({
-          address: args.address as Address,
-          universalResolverAddress: args.universalResolver !== false ? undefined : undefined
+          address: args.address as Address
         })
       }
 
@@ -297,8 +295,7 @@ export default {
 
         textRecord = await client.getEnsText({
           name: normalizedName,
-          key: args.key,
-          universalResolverAddress: args.universalResolver !== false ? undefined : undefined
+          key: args.key
         })
       }
 
@@ -327,11 +324,10 @@ export default {
 
   get_ens_avatar: createTool(
     'Get ENS Avatar',
-    'Get the avatar URI for an ENS name. Returns the avatar URL if set.',
+    'Get the raw avatar text record for an ENS name: an https/ipfs URL, a data URI, or an NFT reference (eip155:1/erc721:0x…/1). It is not fetched or resolved to an image.',
     z.object({
-      chain: z.enum(SUPPORTED_CHAINS).default('mainnet').describe('Blockchain network (defaults to mainnet)'),
-      name: z.string().describe('ENS name to get avatar from'),
-      universalResolver: z.boolean().optional().describe('Use universal resolver for cross-chain resolution (defaults to true)')
+      chain: ensChain,
+      name: z.string().describe('ENS name to get avatar from')
     }),
     async (args) => {
       // Normalize the ENS name
@@ -347,10 +343,8 @@ export default {
         const clientManager = getClientManager()
         const client = clientManager.getClient(args.chain as ChainName)
 
-        avatar = await client.getEnsAvatar({
-          name: normalizedName,
-          universalResolverAddress: args.universalResolver !== false ? undefined : undefined
-        })
+        // getEnsAvatar would fetch the record's URL (or the NFT's metadata) from this server.
+        avatar = await client.getEnsText({ name: normalizedName, key: 'avatar' })
       }
 
       if (!avatar) {
@@ -394,8 +388,7 @@ export default {
             const client = clientManager.getClient(args.chain as ChainName)
 
             address = await client.getEnsAddress({
-              name: normalizedName,
-              universalResolverAddress: args.universalResolver !== false ? undefined : undefined
+              name: normalizedName
             })
           }
 

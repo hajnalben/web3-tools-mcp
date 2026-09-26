@@ -2,7 +2,7 @@ import { type AbiFunction, type Address, isAddress, parseAbiItem } from 'viem'
 import { z } from 'zod'
 import { getClientManager, SUPPORTED_CHAINS } from '../../client.js'
 import type { ChainName } from '../../types.js'
-import { convertArgumentsToTypes, createTool, formatResponse } from '../../utils.js'
+import { convertArgumentsToTypes, createTool, formatResponse, MAX_BATCH } from '../../utils.js'
 
 const ContractCallSchema = z.object({
   chain: z.enum(SUPPORTED_CHAINS).describe('Blockchain network (mainnet, base, arbitrum, polygon, optimism, celo, localhost)'),
@@ -27,6 +27,7 @@ export default {
     z.object({
       calls: z
         .array(ContractCallSchema)
+        .max(MAX_BATCH)
         .describe('Array of contract function calls. Automatically batched by chain/block for optimal performance.')
     }),
     async (args) => {

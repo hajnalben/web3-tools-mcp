@@ -1,8 +1,10 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { RequestHandlerExtra } from '@modelcontextprotocol/sdk/shared/protocol.js'
 import type { ServerNotification, ServerRequest } from '@modelcontextprotocol/sdk/types.js'
+import { getClientManager } from '../client.js'
 import { identityFrom } from '../context.js'
 import type { ToolResult } from '../types.js'
+import { redactSecrets } from '../utils.js'
 import advancedTools from './read/advanced.js'
 import balanceTools from './read/balance.js'
 import contractTools from './read/contract.js'
@@ -85,7 +87,16 @@ export function registerAllTools(server: McpServer, middleware?: ToolMiddleware)
         const identity = identityFrom(extra.authInfo)
         const run = () => tool.handler(args, identity)
         const group = toolGroup(name) as ToolGroup
-        return await (middleware ? middleware({ tool: name, group, identity }, run) : run())
+        // Anything a tool returns or throws may quote an RPC URL, and those carry provider keys.
+        const config = getClientManager().getConfig()
+        try {
+          const result = await (middleware ? middleware({ tool: name, group, identity }, run) : run())
+          return { ...result, content: result.content.map((item) => ({ ...item, text: redactSecrets(item.text, config) })) }
+        } catch (error) {
+          if (!(error instanceof Error)) throw new Error(redactSecrets(String(error), config))
+          error.message = redactSecrets(error.message, config)
+          throw error
+        }
       }
     )
   })

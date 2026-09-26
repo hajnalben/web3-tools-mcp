@@ -4,6 +4,7 @@ import {
   decodeFunctionResult,
   encodeFunctionData,
   formatEther,
+  formatGwei,
   type Hex,
   isAddress,
   parseAbiItem,
@@ -14,12 +15,10 @@ import { z } from 'zod'
 import { getClientManager, SUPPORTED_CHAINS } from '../../client.js'
 import { enrichTransfers } from '../../preview.js'
 import type { ChainName } from '../../types.js'
-import { convertArgumentsToTypes, createTool, formatResponse } from '../../utils.js'
+import { convertArgumentsToTypes, createTool, formatResponse, MAX_BATCH, rpcReason } from '../../utils.js'
 
 /** Alchemy's bundle method takes at most this many transactions. */
 const ALCHEMY_BUNDLE_LIMIT = 3
-/** One tool call is one quota unit, so an unbounded bundle would be a way around the quota. */
-const MAX_BUNDLE = 25
 /** Where eth_simulateV1's traced native transfers say they come from. */
 const NATIVE_TOKEN = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee'
 
@@ -65,15 +64,6 @@ interface AlchemyOutcome {
   }[]
   gasUsed?: Hex
   error?: { message: string }
-}
-
-/**
- * Why an RPC call failed, without the request URL — viem puts it in `message`, and with a
- * provider key configured that URL carries the key.
- */
-function rpcReason(error: unknown): string {
-  const { details, shortMessage } = error as { details?: string; shortMessage?: string }
-  return details || shortMessage || 'The RPC request failed'
 }
 
 function bundleCall(
@@ -223,33 +213,16 @@ export default {
         const abiItem = parseAbiItem(args.functionAbi) as AbiFunction
         const convertedArgs = convertArgumentsToTypes(args.args || [], abiItem.inputs)
 
-        const blockTag = args.blockNumber ? BigInt(args.blockNumber) : undefined
-
-        // Simulate the call
-        const result = await client.call({
+        const tx = {
           to: args.contractAddress as Address,
-          data: encodeFunctionData({
-            abi: [abiItem],
-            functionName: abiItem.name,
-            args: convertedArgs
-          }),
+          data: encodeFunctionData({ abi: [abiItem], functionName: abiItem.name, args: convertedArgs }),
           account: args.from ? (args.from as Address) : undefined,
           value: args.value ? BigInt(args.value) : undefined,
-          blockNumber: blockTag
-        })
+          blockNumber: args.blockNumber ? BigInt(args.blockNumber) : undefined
+        }
 
-        // Also estimate gas
-        const gasEstimate = await client.estimateGas({
-          to: args.contractAddress as Address,
-          data: encodeFunctionData({
-            abi: [abiItem],
-            functionName: abiItem.name,
-            args: convertedArgs
-          }),
-          account: args.from ? (args.from as Address) : undefined,
-          value: args.value ? BigInt(args.value) : undefined,
-          blockNumber: blockTag
-        })
+        const result = await client.call(tx)
+        const gasEstimate = await client.estimateGas(tx)
 
         // Decode the result if the function has outputs
         let decodedResult: unknown = result.data
@@ -272,15 +245,12 @@ export default {
           blockNumber: args.blockNumber || 'latest'
         })
       } catch (error) {
-        // Check if it's a revert error
-        const errorMessage = error instanceof Error ? error.message : String(error)
-
         return formatResponse({
           success: false,
           chain: args.chain,
           contractAddress: args.contractAddress,
-          error: errorMessage,
-          reverted: errorMessage.includes('revert') || errorMessage.includes('execution reverted')
+          error: rpcReason(error),
+          reverted: String(error instanceof Error ? error.message : error).includes('revert')
         })
       }
     }
@@ -311,7 +281,7 @@ export default {
           })
         )
         .min(1)
-        .max(MAX_BUNDLE)
+        .max(MAX_BATCH)
         .describe('Transactions to run, in order'),
       blockNumber: z.string().optional().describe('Block to simulate on top of (defaults to latest)')
     }),
@@ -437,14 +407,7 @@ export default {
         client.estimateFeesPerGas().catch(() => null) // Some chains don't support EIP-1559
       ])
 
-      const formatPrice = (wei: bigint): string => {
-        if (args.formatted) {
-          // Convert to Gwei (1 Gwei = 1e9 wei)
-          const gwei = Number(wei) / 1e9
-          return `${gwei.toFixed(2)} Gwei`
-        }
-        return wei.toString()
-      }
+      const formatPrice = (wei: bigint): string => `${formatGwei(wei)} Gwei`
 
       const response: any = {
         chain: args.chain,
@@ -470,7 +433,7 @@ export default {
         const standardGasLimit = 21000n
         const estimatedCost = feeData.maxFeePerGas * standardGasLimit
         response.eip1559.estimatedCostFor21kGas = args.formatted
-          ? `${(Number(estimatedCost) / 1e18).toFixed(6)} ETH`
+          ? `${formatEther(estimatedCost)} ${client.chain?.nativeCurrency.symbol ?? 'ETH'}`
           : estimatedCost.toString()
       }
 

@@ -186,18 +186,18 @@ describe('Advanced Tools', () => {
       expect(data.trace).toBeDefined()
     }, 30000)
 
-    it('should handle vmTrace type', async () => {
+    it('should handle prestate type', async () => {
       const TX_HASH = '0x5c504ed432cb51138bcf09aa5e8a410dd4a1e204ef84bfed1be16dfba1b22060'
 
       const result = await advancedTools.trace_transaction.handler({
         chain: 'mainnet',
         transactionHash: TX_HASH,
-        traceType: 'vmTrace'
+        traceType: 'prestate'
       })
 
       const data = JSON.parse(result.content[0].text)
       expect(data.transactionHash).toBe(TX_HASH)
-      expect(data.traceType).toBe('vmTrace')
+      expect(data.traceType).toBe('prestate')
     }, 30000)
 
     it('should handle stateDiff type', async () => {

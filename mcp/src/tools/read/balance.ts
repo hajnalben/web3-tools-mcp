@@ -1,8 +1,9 @@
 import { type Address, formatEther, formatUnits, isAddress } from 'viem'
 import { z } from 'zod'
+import { tokenMeta } from '../../chain-meta.js'
 import { getClientManager, SUPPORTED_CHAINS } from '../../client.js'
 import type { ChainName } from '../../types.js'
-import { createTool, formatResponse } from '../../utils.js'
+import { createTool, formatResponse, MAX_BATCH, rpcReason } from '../../utils.js'
 
 const BalanceQuerySchema = z.object({
   chain: z.enum(SUPPORTED_CHAINS).describe('The blockchain network to use'),
@@ -19,6 +20,7 @@ export default {
     z.object({
       queries: z
         .array(BalanceQuerySchema)
+        .max(MAX_BATCH)
         .describe('Array of balance queries. Omit tokenAddress for native balance, include for ERC20.')
     }),
     async (args) => {
@@ -42,7 +44,7 @@ export default {
         success: boolean
         balance?: unknown
         balanceFormatted?: string
-        decimals?: number
+        decimals?: number | null
         error?: string
       }> = []
 
@@ -86,42 +88,24 @@ export default {
               throw new Error(`Invalid token address format: ${query.tokenAddress}`)
             }
 
-            const balance = await client.readContract({
-              address: query.tokenAddress as Address,
-              abi: [
-                {
-                  name: 'balanceOf',
-                  type: 'function',
-                  stateMutability: 'view',
-                  inputs: [{ name: 'account', type: 'address' }],
-                  outputs: [{ name: '', type: 'uint256' }]
-                }
-              ],
-              functionName: 'balanceOf',
-              args: [query.address as Address],
-              blockNumber: blockTag === 'latest' ? undefined : blockTag
-            })
-
-            // Try to get decimals
-            let decimals = 18
-            try {
-              decimals = (await client.readContract({
+            const [balance, { decimals }] = await Promise.all([
+              client.readContract({
                 address: query.tokenAddress as Address,
                 abi: [
                   {
-                    name: 'decimals',
+                    name: 'balanceOf',
                     type: 'function',
                     stateMutability: 'view',
-                    inputs: [],
-                    outputs: [{ name: '', type: 'uint8' }]
+                    inputs: [{ name: 'account', type: 'address' }],
+                    outputs: [{ name: '', type: 'uint256' }]
                   }
                 ],
-                functionName: 'decimals',
+                functionName: 'balanceOf',
+                args: [query.address as Address],
                 blockNumber: blockTag === 'latest' ? undefined : blockTag
-              })) as number
-            } catch {
-              // Use default decimals if call fails
-            }
+              }),
+              tokenMeta(chain as ChainName, query.tokenAddress).catch(() => ({ decimals: undefined }))
+            ])
 
             return {
               index: originalIndex,
@@ -132,8 +116,9 @@ export default {
               blockNumber: query.blockNumber || 'latest',
               success: true,
               balance,
-              balanceFormatted: formatUnits(balance as bigint, decimals),
-              decimals
+              // Unknown decimals leave only the raw balance: guessing 18 could be off by 10^12.
+              balanceFormatted: decimals === undefined ? undefined : formatUnits(balance, decimals),
+              decimals: decimals ?? null
             }
           })
         )
@@ -153,7 +138,7 @@ export default {
               chain: query.chain,
               blockNumber: query.blockNumber || 'latest',
               success: false,
-              error: result.reason instanceof Error ? result.reason.message : String(result.reason)
+              error: rpcReason(result.reason)
             }
           }
         })

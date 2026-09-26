@@ -15,7 +15,7 @@ import {
 import { z } from 'zod'
 import { getClientManager, SUPPORTED_CHAINS } from '../../client.js'
 import type { ChainName } from '../../types.js'
-import { convertEventArgsToTypes, createTool, formatResponse } from '../../utils.js'
+import { convertEventArgsToTypes, createTool, formatResponse, rpcReason } from '../../utils.js'
 
 /**
  * A topic is always 32 bytes, so an address, a number or a short hex value has to be
@@ -34,15 +34,71 @@ function toTopic(value: unknown): Hex {
   throw new Error(`Cannot filter on indexed value ${JSON.stringify(value)} — expected an address, number or hex string`)
 }
 
+/** More than this is cut short, with the block to resume from. */
+export const MAX_LOGS = 1000
+
+interface DecodedLog {
+  address: Address
+  blockHash: Hex | null
+  blockNumber: bigint | null
+  data: Hex
+  logIndex: number | null | undefined
+  topics: readonly Hex[]
+  transactionHash: Hex | null
+  transactionIndex: number | null | undefined
+  eventName: string
+  args: unknown
+}
+
+function serializeLog(log: DecodedLog) {
+  return {
+    address: log.address,
+    blockHash: log.blockHash,
+    blockNumber: log.blockNumber?.toString(),
+    data: log.data,
+    logIndex: log.logIndex,
+    topics: log.topics,
+    transactionHash: log.transactionHash,
+    transactionIndex: log.transactionIndex,
+    decoded: { eventName: log.eventName, args: log.args }
+  }
+}
+
+/** Resuming from `nextBlock` may repeat logs of that block already returned. */
+export function capLogs(logs: DecodedLog[]) {
+  if (logs.length <= MAX_LOGS) return { logs: logs.map(serializeLog) }
+  return {
+    logs: logs.slice(0, MAX_LOGS).map(serializeLog),
+    truncated: true,
+    nextBlock: logs[MAX_LOGS]?.blockNumber?.toString()
+  }
+}
+
+/**
+ * The same range eth_getLogs would scan — each end defaults to the latest block — in
+ * Hypersync's terms, where `toBlock` is exclusive.
+ */
+export function hypersyncRange(fromBlock: string | undefined, toBlock: string | undefined, latest: number) {
+  return {
+    fromBlock: fromBlock ? Number(BigInt(fromBlock)) : latest,
+    toBlock: (toBlock ? Number(BigInt(toBlock)) : latest) + 1
+  }
+}
+
+/** One topic, or a list of alternatives for an OR filter. */
+export function toTopics(value: unknown): Hex | Hex[] {
+  return Array.isArray(value) ? value.map(toTopic) : toTopic(value)
+}
+
 async function getLogsWithHypersync(
   chainName: ChainName,
-  eventAbi: string,
+  abiItem: AbiEvent,
   hypersyncApiKey?: string,
   address?: string,
   fromBlock?: string,
   toBlock?: string,
   eventArgs?: Record<string, unknown>
-) {
+): Promise<DecodedLog[]> {
   const hypersyncUrl = getClientManager().getHypersyncUrl(chainName)
   if (!hypersyncUrl) {
     throw new Error(`Hypersync not supported for chain: ${chainName}`)
@@ -53,24 +109,25 @@ async function getLogsWithHypersync(
     bearerToken: hypersyncApiKey
   })
 
-  const abiItem = parseAbiItem(eventAbi) as AbiEvent
-  const eventSignature = toEventSignature(abiItem)
-  const topic0 = keccak256(toBytes(eventSignature))
+  const topic0 = keccak256(toBytes(toEventSignature(abiItem)))
 
   // Build topics array for filtering
-  const topics: (string | string[] | null)[] = [topic0]
+  const topics: (Hex | Hex[] | null)[] = [topic0]
 
   // Add indexed parameter filtering if eventArgs provided
-  if (eventArgs && Object.keys(eventArgs).length > 0) {
+  if (eventArgs) {
     const indexedInputs = abiItem.inputs.filter((input) => input.indexed)
 
     for (let i = 0; i < indexedInputs.length && i < 3; i++) {
       const input = indexedInputs[i]
       const argValue = input?.name ? eventArgs[input.name] : undefined
 
-      topics.push(argValue === undefined ? null : toTopic(argValue))
+      topics.push(argValue === undefined ? null : toTopics(argValue))
     }
   }
+
+  const latest = fromBlock && toBlock ? 0 : await client.getHeight()
+  const range = hypersyncRange(fromBlock, toBlock, latest)
 
   const query = {
     fieldSelection: {
@@ -88,8 +145,7 @@ async function getLogsWithHypersync(
         LogField.LogIndex
       ]
     },
-    fromBlock: fromBlock ? Number.parseInt(fromBlock, 10) : 0,
-    toBlock: toBlock ? Number.parseInt(toBlock, 10) : undefined,
+    ...range,
     logs: [
       {
         address: address ? [address] : undefined,
@@ -100,11 +156,17 @@ async function getLogsWithHypersync(
     ]
   }
 
-  const res = await client.get(query)
+  // One response covers only part of a long range; `nextBlock` says where it stopped.
+  const logs: Log[] = []
+  for (let from = range.fromBlock; from < range.toBlock && logs.length <= MAX_LOGS; ) {
+    const res = await client.get({ ...query, fromBlock: from })
+    logs.push(...res.data.logs)
+    if (res.nextBlock <= from) break
+    from = res.nextBlock
+  }
 
-  // Convert hypersync logs to viem-compatible format
-  const decodedLogs = res.data.logs
-    .map((log: Log) => {
+  return logs
+    .map((log: Log): DecodedLog | null => {
       const topics = log.topics.filter((topic): topic is string => Boolean(topic)) as [Hex, ...Hex[]]
       const data = (log.data ?? '0x') as Hex
 
@@ -113,7 +175,7 @@ async function getLogsWithHypersync(
         return {
           address: log.address as Address,
           blockHash: log.blockHash as Hex,
-          blockNumber: log.blockNumber ? BigInt(log.blockNumber) : 0n,
+          blockNumber: log.blockNumber !== undefined ? BigInt(log.blockNumber) : null,
           data,
           logIndex: log.logIndex,
           topics,
@@ -127,165 +189,91 @@ async function getLogsWithHypersync(
         return null
       }
     })
-    .filter((log): log is NonNullable<typeof log> => log !== null)
-
-  return decodedLogs
+    .filter((log): log is DecodedLog => log !== null)
 }
 
 export default {
   get_logs: createTool(
     'Query Contract Events',
-    'Search and decode contract events with filtering. Uses viem with hypersync fallback. Specify address and block ranges for best performance.',
+    `Search and decode contract events with filtering. Uses viem with hypersync fallback. Specify address and block ranges for best performance. Returns at most ${MAX_LOGS} logs; past that, truncated is true and nextBlock says where to resume.`,
     z.object({
       chain: z.enum(SUPPORTED_CHAINS).describe('The blockchain network to use'),
       eventAbi: z
         .string()
         .describe('Event ABI definition (e.g., "event Transfer(address indexed from, address indexed to, uint256 value)")'),
       address: z.string().optional().describe('Contract address (RECOMMENDED for performance)'),
-      fromBlock: z.string().optional().describe('Start block (defaults to latest-1000)'),
-      toBlock: z.string().optional().describe('End block (defaults to latest)'),
+      fromBlock: z.string().optional().describe('Start block (defaults to the latest block)'),
+      toBlock: z.string().optional().describe('End block, inclusive (defaults to the latest block)'),
       eventArgs: z
         .record(z.union([z.string(), z.number(), z.boolean(), z.array(z.union([z.string(), z.number(), z.boolean()]))]))
         .optional()
-        .describe('Filter by indexed parameters: {"from": "0x123...", "to": "0x456..."}')
+        .describe(
+          'Filter by indexed parameters: {"from": "0x123...", "to": "0x456..."}. A list matches any of its values: {"to": ["0x1...", "0x2..."]}'
+        )
     }),
     async (args) => {
       const clientManager = getClientManager()
-      const config = (clientManager as any).config
+      const chain = args.chain as ChainName
+      const abiItem = parseAbiItem(args.eventAbi) as AbiEvent
 
-      // First try with regular viem client
-      try {
-        const client = clientManager.getClient(args.chain as ChainName)
-        const abiItem = parseAbiItem(args.eventAbi) as AbiEvent
+      if (args.address && !isAddress(args.address)) {
+        throw new Error(`Invalid contract address: ${args.address}`)
+      }
 
-        // Determine block range
-        const fromBlockNum = args.fromBlock ? BigInt(args.fromBlock) : undefined
-        const toBlockNum = args.toBlock ? BigInt(args.toBlock) : undefined
+      const eventArgs =
+        args.eventArgs && Object.keys(args.eventArgs).length > 0
+          ? convertEventArgsToTypes(args.eventArgs, abiItem.inputs)
+          : undefined
+      const fromBlockNum = args.fromBlock ? BigInt(args.fromBlock) : undefined
+      const toBlockNum = args.toBlock ? BigInt(args.toBlock) : undefined
 
-        // Prepare getLogs parameters
-        const getLogsParams: {
-          address?: Address
-          event: AbiEvent
-          fromBlock?: bigint
-          toBlock?: bigint
-          args?: Record<string, unknown>
-        } = {
-          event: abiItem,
-          fromBlock: fromBlockNum,
-          toBlock: toBlockNum
-        }
-
-        // Add address filter if provided
-        if (args.address && isAddress(args.address)) {
-          getLogsParams.address = args.address as Address
-        }
-
-        // Add event argument filters if provided
-        if (args.eventArgs && Object.keys(args.eventArgs).length > 0) {
-          // Convert event arguments to proper types based on ABI
-          const convertedEventArgs = convertEventArgsToTypes(args.eventArgs, abiItem.inputs)
-          getLogsParams.args = convertedEventArgs
-        }
-
-        // Use client.getLogs with proper typing
-        const logs = await client.getLogs(getLogsParams)
-
-        // Convert logs to serializable format
-        const serializedLogs = logs.map((log) => {
-          const baseLogData = {
-            address: log.address,
-            blockHash: log.blockHash,
-            blockNumber: log.blockNumber?.toString(),
-            data: log.data,
-            logIndex: log.logIndex,
-            topics: log.topics,
-            transactionHash: log.transactionHash,
-            transactionIndex: log.transactionIndex
-          }
-
-          return {
-            ...baseLogData,
-            decoded: {
-              eventName: log.eventName,
-              args: log.args
-            }
-          }
-        })
-
+      const respond = (logs: DecodedLog[], dataSource: 'viem' | 'hypersync') => {
+        const capped = capLogs(logs)
         return formatResponse({
-          logs: serializedLogs,
+          ...capped,
           eventSignature: toEventSignature(abiItem),
           chain: args.chain,
           fromBlock: fromBlockNum?.toString() || 'latest',
           toBlock: toBlockNum?.toString() || 'latest',
-          count: logs.length,
-          dataSource: 'viem',
+          count: capped.logs.length,
+          dataSource,
           filters: {
             address: args.address || null,
             eventArgs: args.eventArgs || null
           }
         })
+      }
+
+      try {
+        const logs = await clientManager.getClient(chain).getLogs({
+          address: args.address as Address | undefined,
+          event: abiItem,
+          args: eventArgs,
+          fromBlock: fromBlockNum,
+          toBlock: toBlockNum
+        })
+        return respond(logs as DecodedLog[], 'viem')
       } catch (viemError) {
-        // If viem fails and we have hypersync support for this chain, try hypersync as fallback
-        if (clientManager.getHypersyncUrl(args.chain as ChainName)) {
-          console.warn(`Viem getLogs failed for ${args.chain}, trying hypersync fallback:`, viemError)
+        if (!clientManager.getHypersyncUrl(chain)) {
+          throw new Error(`Failed to get logs with viem (hypersync not available for ${args.chain}): ${rpcReason(viemError)}`)
+        }
+        console.warn(`Viem getLogs failed for ${args.chain}, trying hypersync fallback: ${rpcReason(viemError)}`)
 
-          try {
-            const hypersyncLogs = await getLogsWithHypersync(
-              args.chain as ChainName,
-              args.eventAbi,
-              config.hypersyncApiKey,
-              args.address,
-              args.fromBlock,
-              args.toBlock,
-              args.eventArgs
-            )
-
-            const abiItem = parseAbiItem(args.eventAbi) as AbiEvent
-            const fromBlockNum = args.fromBlock ? BigInt(args.fromBlock) : undefined
-            const toBlockNum = args.toBlock ? BigInt(args.toBlock) : undefined
-
-            // Convert hypersync logs to the same format as viem logs
-            const serializedLogs = hypersyncLogs.map((log) => {
-              const baseLogData = {
-                address: log.address,
-                blockHash: log.blockHash,
-                blockNumber: log.blockNumber?.toString(),
-                data: log.data,
-                logIndex: log.logIndex,
-                topics: log.topics,
-                transactionHash: log.transactionHash,
-                transactionIndex: log.transactionIndex
-              }
-
-              return {
-                ...baseLogData,
-                decoded: {
-                  eventName: log.eventName,
-                  args: log.args
-                }
-              }
-            })
-
-            return formatResponse({
-              logs: serializedLogs,
-              eventSignature: toEventSignature(abiItem),
-              chain: args.chain,
-              fromBlock: fromBlockNum?.toString() || 'latest',
-              toBlock: toBlockNum?.toString() || 'latest',
-              count: hypersyncLogs.length,
-              dataSource: 'hypersync',
-              filters: {
-                address: args.address || null,
-                eventArgs: args.eventArgs || null
-              }
-            })
-          } catch (hypersyncError) {
-            throw new Error(`Both viem and hypersync failed. Viem error: ${viemError}. Hypersync error: ${hypersyncError}`)
-          }
-        } else {
-          // No hypersync fallback available for this chain
-          throw new Error(`Failed to get logs with viem (hypersync not available for ${args.chain}): ${viemError}`)
+        try {
+          const logs = await getLogsWithHypersync(
+            chain,
+            abiItem,
+            clientManager.getConfig().hypersyncApiKey,
+            args.address,
+            args.fromBlock,
+            args.toBlock,
+            eventArgs
+          )
+          return respond(logs, 'hypersync')
+        } catch (hypersyncError) {
+          throw new Error(
+            `Both viem and hypersync failed. Viem error: ${rpcReason(viemError)}. Hypersync error: ${rpcReason(hypersyncError)}`
+          )
         }
       }
     }

@@ -1,7 +1,6 @@
 import {
   type AbiEvent,
   type AbiFunction,
-  type AbiParameter,
   encodeFunctionData,
   keccak256,
   parseAbiItem,
@@ -11,7 +10,7 @@ import {
 } from 'viem'
 import { z } from 'zod'
 import type { AbiError } from '../../types.js'
-import { createTool, formatResponse } from '../../utils.js'
+import { convertArgumentsToTypes, createTool, formatResponse } from '../../utils.js'
 
 const FunctionAbiSchema = z.object({
   functionAbi: z.string().describe('Function ABI definition (e.g., "function transfer(address to, uint256 amount)")')
@@ -92,7 +91,8 @@ export default {
     async (args) => {
       const results = args.items.map((item) => {
         const abiItem = parseAbiItem(item.errorAbi) as AbiError
-        const signature = `${abiItem.name}(${abiItem.inputs.map((input: AbiParameter) => input.type).join(',')})`
+        // Formatted as a function, which an error's signature is; viem keeps an "error " prefix otherwise.
+        const signature = toFunctionSignature({ ...abiItem, type: 'function', outputs: [], stateMutability: 'nonpayable' })
         const hash = keccak256(toBytes(signature))
         const selector = hash.slice(0, 10)
 
@@ -125,7 +125,7 @@ export default {
       const data = encodeFunctionData({
         abi: [abiItem],
         functionName: abiItem.name,
-        args: args.args as readonly unknown[]
+        args: convertArgumentsToTypes(args.args, abiItem.inputs)
       })
 
       return formatResponse({

@@ -1,9 +1,37 @@
-import { type Address, decodeAbiParameters, isAddress, parseAbiParameters } from 'viem'
+import {
+  type AbiFunction,
+  type Address,
+  decodeAbiParameters,
+  encodeFunctionData,
+  isAddress,
+  parseAbiItem,
+  parseAbiParameters
+} from 'viem'
 import { z } from 'zod'
 import { isDebugNodeAvailable, simulateCallWithTrace, traceTransactionWithAnvil } from '../../anvil.js'
 import { getClientManager, SUPPORTED_CHAINS } from '../../client.js'
 import type { ChainName } from '../../types.js'
-import { createTool, formatResponse, summarizeTrace } from '../../utils.js'
+import { convertArgumentsToTypes, createTool, formatResponse, rpcReason, summarizeTrace } from '../../utils.js'
+
+/** Past these, a trace would crowd everything else out of the agent's context. */
+const MAX_TRACE_CHARS = 50_000
+const MAX_INPUT_CHARS = 10_000
+const MAX_RECEIPT_LOGS = 100
+
+const SUMMARIZE_DESCRIPTION =
+  'Return a compact summary instead of the full trace: the path to the revert, or the top-level calls, with selectors only and no calldata.'
+
+/** The trace itself if it fits, otherwise its JSON cut short. */
+export function boundTrace(trace: unknown): { trace: unknown; truncated?: true } {
+  const json = JSON.stringify(trace) ?? ''
+  return json.length > MAX_TRACE_CHARS ? { trace: json.slice(0, MAX_TRACE_CHARS), truncated: true } : { trace }
+}
+
+const TRACERS = {
+  trace: { tracer: 'callTracer' },
+  prestate: { tracer: 'prestateTracer' },
+  stateDiff: { tracer: 'prestateTracer', tracerConfig: { diffMode: true } }
+} as const
 
 export default {
   get_storage_at: createTool(
@@ -77,8 +105,8 @@ export default {
               const parsedTypes = parseAbiParameters([args.abiType])
               if (parsedTypes.length > 0) {
                 const decoded = decodeAbiParameters(parsedTypes, storageValue) as readonly unknown[]
-                decodedValue = decoded.length > 0 ? decoded[0] : null
-                formattedValue = decodedValue ? String(decodedValue) : 'No data'
+                decodedValue = decoded[0]
+                formattedValue = decodedValue === undefined ? 'No data' : String(decodedValue)
               } else {
                 decodedValue = null
                 formattedValue = 'Invalid ABI type'
@@ -148,9 +176,11 @@ export default {
       chain: z.enum(SUPPORTED_CHAINS).describe('The blockchain network to use'),
       transactionHash: z.string().describe('Transaction hash to trace (0x prefixed)'),
       traceType: z
-        .enum(['trace', 'vmTrace', 'stateDiff'])
+        .enum(['trace', 'prestate', 'stateDiff'])
         .optional()
-        .describe('Trace type: "trace" (call tree, recommended), "vmTrace" (VM execution), "stateDiff" (state changes)')
+        .describe(
+          'Trace type: "trace" (call tree, recommended), "prestate" (state of every touched account before the tx), "stateDiff" (state before and after, changed fields only)'
+        )
         .default('trace'),
       useAnvil: z
         .boolean()
@@ -159,11 +189,7 @@ export default {
           'Force tracing through the debug node (ANVIL_RPC_URL). Used automatically as a fallback when the RPC cannot trace.'
         )
         .default(false),
-      summarize: z
-        .boolean()
-        .optional()
-        .describe('Return a compact summary instead of full trace. Truncates hex data and flattens nested calls.')
-        .default(false)
+      summarize: z.boolean().optional().describe(SUMMARIZE_DESCRIPTION).default(false)
     }),
     async (args) => {
       const clientManager = getClientManager()
@@ -176,24 +202,18 @@ export default {
       let traceResult: unknown = null
       let usedAnvil = false
 
-      // Map trace type to tracer name
-      const tracerMap: Record<string, 'callTracer' | 'prestateTracer' | 'stateDiffTracer'> = {
-        trace: 'callTracer',
-        vmTrace: 'prestateTracer',
-        stateDiff: 'stateDiffTracer'
-      }
-      const tracer = tracerMap[args.traceType ?? 'trace'] ?? 'callTracer'
+      const tracerOptions = TRACERS[args.traceType ?? 'trace']
 
       // Try RPC tracing first (unless forceAnvil is true)
       if (!args.useAnvil) {
         try {
           traceResult = await client.request({
             method: 'debug_traceTransaction',
-            params: [args.transactionHash, { tracer }]
+            params: [args.transactionHash, tracerOptions]
           })
         } catch (rpcError) {
           // RPC tracing failed, will try Anvil fallback
-          const errorMessage = (rpcError as Error).message
+          const errorMessage = rpcReason(rpcError)
           if (
             errorMessage.includes('not supported') ||
             errorMessage.includes('not available') ||
@@ -222,11 +242,11 @@ export default {
             const forkUrl = clientManager.getRpcUrl(args.chain as ChainName)
             const blockNumber = transaction.blockNumber ?? 0n
 
-            traceResult = await traceTransactionWithAnvil(forkUrl, args.transactionHash, blockNumber, tracer)
+            traceResult = await traceTransactionWithAnvil(forkUrl, args.transactionHash, blockNumber, tracerOptions.tracer)
           } catch (anvilError) {
             // Anvil tracing also failed
             traceResult = {
-              error: `Anvil tracing failed: ${(anvilError as Error).message}`,
+              error: `Anvil tracing failed: ${rpcReason(anvilError)}`,
               rpcError:
                 traceResult && typeof traceResult === 'object' && 'rpcError' in traceResult
                   ? (traceResult as { rpcError: string }).rpcError
@@ -257,11 +277,20 @@ export default {
       const traceSummary =
         args.summarize && traceResult && typeof traceResult === 'object' && !isPlainError ? summarizeTrace(traceResult) : null
 
+      const replayNote =
+        usedAnvil && !isPlainError
+          ? 'Replayed on the debug node against the state at the end of the previous block: transactions before this one in the same block were not applied, so the trace can differ from what happened on chain.' +
+            (args.traceType === 'stateDiff' ? ' This replay shows the prestate only, not a diff.' : '')
+          : undefined
+      const bounded = boundTrace(traceResult)
+      const input = transaction.input ?? '0x'
+
       const result =
         args.summarize && traceSummary
           ? {
               chain: args.chain,
               transactionHash: args.transactionHash,
+              ...(replayNote && { note: replayNote }),
               status: receipt.status,
               gasUsed: receipt.gasUsed?.toString(),
               ...traceSummary // { hasError, errorPath, summary }
@@ -272,6 +301,10 @@ export default {
               transactionHash: args.transactionHash,
               traceType: args.traceType,
               usedAnvil,
+              ...(replayNote && { note: replayNote }),
+              ...((bounded.truncated || input.length > MAX_INPUT_CHARS || receipt.logs.length > MAX_RECEIPT_LOGS) && {
+                truncated: true
+              }),
               transaction: {
                 blockNumber: transaction.blockNumber?.toString(),
                 from: transaction.from,
@@ -280,19 +313,20 @@ export default {
                 gas: transaction.gas?.toString() || '0',
                 gasPrice: transaction.gasPrice?.toString() || '0',
                 nonce: transaction.nonce?.toString() || '0',
-                input: transaction.input
+                input: input.length > MAX_INPUT_CHARS ? `${input.slice(0, MAX_INPUT_CHARS)}…` : input
               },
               receipt: {
                 status: receipt.status,
                 gasUsed: receipt.gasUsed?.toString() || '0',
                 effectiveGasPrice: receipt.effectiveGasPrice?.toString() || '0',
-                logs: receipt.logs.map((log) => ({
+                logCount: receipt.logs.length,
+                logs: receipt.logs.slice(0, MAX_RECEIPT_LOGS).map((log) => ({
                   address: log.address,
                   topics: log.topics,
                   data: log.data
                 }))
               },
-              trace: traceResult
+              trace: bounded.trace
             }
 
       return formatResponse(result)
@@ -322,11 +356,7 @@ export default {
         .optional()
         .default('callTracer')
         .describe('Trace type: callTracer (call tree) or prestateTracer (state before execution)'),
-      summarize: z
-        .boolean()
-        .optional()
-        .describe('Return a compact summary instead of full trace. Truncates hex data and flattens nested calls.')
-        .default(false)
+      summarize: z.boolean().optional().describe(SUMMARIZE_DESCRIPTION).default(false)
     }),
     async (args) => {
       // Check if Anvil is installed
@@ -342,15 +372,14 @@ export default {
       let calldata = args.data
       if (args.functionAbi && !calldata) {
         try {
-          const { encodeFunctionData, parseAbiItem } = await import('viem')
-          const abiItem = parseAbiItem(args.functionAbi)
+          const abiItem = parseAbiItem(args.functionAbi) as AbiFunction
           if (abiItem.type !== 'function') {
             throw new Error('ABI must be a function signature')
           }
           calldata = encodeFunctionData({
             abi: [abiItem],
             functionName: abiItem.name,
-            args: (args.args ?? []) as readonly unknown[]
+            args: convertArgumentsToTypes(args.args ?? [], abiItem.inputs)
           })
         } catch (encodeError) {
           throw new Error(`Failed to encode function call: ${(encodeError as Error).message}`)
@@ -406,7 +435,7 @@ export default {
               result: traceResult.result,
               gasUsed: traceResult.gasUsed.toString(),
               revertReason: traceResult.revertReason,
-              trace: traceResult.trace
+              ...boundTrace(traceResult.trace)
             }
 
       return formatResponse(result)

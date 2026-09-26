@@ -136,11 +136,13 @@ function findErrorInTrace(trace: unknown): { errorPath: SummarizedCall[]; errorM
 }
 
 /**
- * Coerce a JSON value into what viem expects for an ABI type. Tuples, arrays and anything
+ * Coerce a JSON value into what viem expects for an ABI type. A list is coerced element by
+ * element — an array argument, or an OR filter on an event argument. Tuples and anything
  * else pass through: viem validates them, and guessing here would only mangle them.
  */
 function coerce(value: unknown, type: string): unknown {
   if (value === null || value === undefined) return null
+  if (Array.isArray(value)) return value.map((item) => coerce(item, type))
 
   if (type === 'address' || type === 'string' || type.startsWith('bytes')) {
     return String(value)
@@ -193,6 +195,50 @@ export function convertEventArgsToTypes(
       return [argName, coerce(argValue, param.type)]
     })
   )
+}
+
+/** One tool call is one quota unit, so an unbounded batch would be a way around the quota. */
+export const MAX_BATCH = 25
+
+/**
+ * Why an RPC call failed, without the request URL — viem puts it in `message`, and with a
+ * provider key configured that URL carries the key.
+ */
+export function rpcReason(error: unknown): string {
+  const { details, shortMessage } = error as { details?: string; shortMessage?: string }
+  return details || shortMessage || (error instanceof Error ? error.message : String(error))
+}
+
+/** Every configured key blanked out of `text`: RPC URLs carry them, and errors quote the URL. */
+export function redactSecrets(text: string, config: Config): string {
+  return [config.alchemyApiKey, config.infuraApiKey, config.etherscanApiKey, config.hypersyncApiKey].reduce<string>(
+    (out, secret) => (secret ? out.replaceAll(secret, '[redacted]') : out),
+    text
+  )
+}
+
+/** A Map whose entries expire after `ttlMs`, dropping the oldest once it holds `maxSize`. */
+export class TtlCache<V> {
+  private entries = new Map<string, { value: V; expires: number }>()
+
+  constructor(
+    private maxSize: number,
+    private ttlMs: number
+  ) {}
+
+  get(key: string): V | undefined {
+    const entry = this.entries.get(key)
+    if (!entry) return undefined
+    if (entry.expires > Date.now()) return entry.value
+    this.entries.delete(key)
+    return undefined
+  }
+
+  set(key: string, value: V): void {
+    this.entries.delete(key)
+    this.entries.set(key, { value, expires: Date.now() + this.ttlMs })
+    if (this.entries.size > this.maxSize) this.entries.delete(this.entries.keys().next().value as string)
+  }
 }
 
 // Format response as tool result

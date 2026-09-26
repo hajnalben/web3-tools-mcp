@@ -8,15 +8,21 @@ import { whatsabi } from '@shazow/whatsabi'
 import { type Abi, type Address, parseAbiItem } from 'viem'
 import { getClientManager } from './client.js'
 import type { ChainName } from './types.js'
+import { TtlCache } from './utils.js'
 
 const ERC20_META_ABI = [
   parseAbiItem('function decimals() view returns (uint8)'),
   parseAbiItem('function symbol() view returns (string)')
 ]
 
-const abiCache = new Map<string, { abi: Abi; source: 'verified' | 'guessed'; proxy?: string; name?: string }>()
-const labelCache = new Map<string, string | undefined>()
-const metaCache = new Map<string, { symbol?: string; decimals?: number }>()
+// An hour covers a session's repeats while still noticing an upgraded proxy.
+const TTL_MS = 60 * 60 * 1000
+const abiCache = new TtlCache<{ abi: Abi; source: 'verified' | 'guessed'; proxy?: string; name?: string }>(200, TTL_MS)
+const labelCache = new TtlCache<{ label?: string }>(1000, TTL_MS)
+const metaCache = new TtlCache<{ symbol?: string; decimals?: number }>(1000, TTL_MS)
+
+/** A local node is reset and redeployed at will, so nothing learned from it stays true. */
+const cacheable = (chain: ChainName) => chain !== 'localhost'
 
 export async function loadAbi(chain: ChainName, address: string) {
   const key = `${chain}:${address.toLowerCase()}`
@@ -49,7 +55,7 @@ export async function loadAbi(chain: ChainName, address: string) {
     proxy: result.address !== address ? result.address : undefined,
     name: result.contractResult?.name ?? undefined
   }
-  abiCache.set(key, loaded)
+  if (cacheable(chain)) abiCache.set(key, loaded)
   return loaded
 }
 
@@ -71,7 +77,8 @@ export async function tokenMeta(chain: ChainName, token: string) {
     decimals: decimals.status === 'success' ? Number(decimals.result) : undefined,
     symbol: symbol.status === 'success' ? (symbol.result as string) : undefined
   }
-  metaCache.set(key, meta)
+  // A failed call may be a flaky RPC rather than a token without that method.
+  if (cacheable(chain) && decimals.status === 'success' && symbol.status === 'success') metaCache.set(key, meta)
   return meta
 }
 
@@ -82,7 +89,8 @@ export async function tokenMeta(chain: ChainName, token: string) {
  */
 export async function addressLabel(chain: ChainName, address: string): Promise<string | undefined> {
   const key = `${chain}:${address.toLowerCase()}`
-  if (labelCache.has(key)) return labelCache.get(key)
+  const cached = labelCache.get(key)
+  if (cached) return cached.label
 
   let label: string | undefined
   try {
@@ -95,9 +103,10 @@ export async function addressLabel(chain: ChainName, address: string): Promise<s
     }
   } catch {
     // Unknown address — show it bare rather than failing the preview.
+    return undefined
   }
 
-  labelCache.set(key, label)
+  if (cacheable(chain)) labelCache.set(key, { label })
   return label
 }
 
