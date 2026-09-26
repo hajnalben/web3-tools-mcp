@@ -10,8 +10,9 @@ config({ path: fileURLToPath(new URL('../../.env', import.meta.url)), quiet: tru
 /**
  * These tests hit live chains, and a public RPC only serves recent state. Historical
  * state, logs over a past range and tracing all need a provider key; Hypersync needs its
- * own token; tracing also needs Foundry. Tests that cannot work without one skip instead
- * of failing, so a checkout with no credentials still gives a meaningful run.
+ * own token; tracing also needs a node serving debug_traceCall at ANVIL_RPC_URL. Tests
+ * that cannot work without one skip instead of failing, so a checkout with no credentials
+ * still gives a meaningful run.
  *
  * Set them in .env locally, or as repository secrets for CI.
  */

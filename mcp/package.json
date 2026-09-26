@@ -22,7 +22,7 @@
     "src"
   ],
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=20.19.0"
   },
   "scripts": {
     "clean": "rm -rf dist",
@@ -83,8 +83,5 @@
     "dotenv": "^17.2.3",
     "typescript": "^5.0.0",
     "vitest": "^3.2.4"
-  },
-  "workspaces": [
-    "wallet"
-  ]
+  }
 }

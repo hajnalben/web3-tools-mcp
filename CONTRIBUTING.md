@@ -21,14 +21,18 @@ Point an MCP client at the local build rather than the published package:
 claude mcp add --scope project web3-tools-dev -- node /absolute/path/to/web3-tools-mcp/mcp/dist/index.js
 ```
 
-`npm run watch` recompiles on save; restart the client to pick up the new build.
+`npm run watch -w web3-tools-mcp` recompiles on save; restart the client to pick up the new build.
 
 To drive it by hand without a client:
 
 ```bash
 node mcp/dist/index.js --help
-MCP_HTTP_PORT=3457 MCP_TOKEN=dev node mcp/dist/index.js   # then POST JSON-RPC to /mcp
+MCP_HTTP_PORT=8080 MCP_TOKEN=dev node mcp/dist/index.js   # then POST JSON-RPC to /mcp
 ```
+
+Keep that port outside 3456-3460, where the local wallet relay lives. Setting
+`MCP_HTTP_PORT` also switches on hosted mode, so the `localhost` chain drops out and tracing
+needs an explicit `ANVIL_RPC_URL`.
 
 ## Checks
 
@@ -44,9 +48,9 @@ CI runs all four. `npm run format` before committing is usually all it takes.
 The tests reach live chains, and a public RPC serves only recent state. Anything needing
 historical state, logs over a past range, `eth_simulateV1` or tracing skips itself when the
 matching credential is absent, so `npm test` is green on a checkout with no `.env` at all —
-it just covers less (88 of 135 tests). For the full run set `ALCHEMY_API_KEY` (or
-`INFURA_API_KEY`, or `CUSTOM_RPC`) and `HYPERSYNC_API_KEY`; tracing also needs Foundry on
-your PATH. The flags live in [mcp/test/setup.ts](mcp/test/setup.ts).
+it just covers less. For the full run set `ALCHEMY_API_KEY` (or `INFURA_API_KEY`, or
+`CUSTOM_RPC`) and `HYPERSYNC_API_KEY`; tracing also needs a node exposing `debug_traceCall`
+at `ANVIL_RPC_URL` (default `127.0.0.1:8545`, e.g. `anvil --fork-url …`). The flags live in [mcp/test/setup.ts](mcp/test/setup.ts).
 
 Run a single file while iterating: `npm test -w web3-tools-mcp -- test/preview.test.ts`, or
 `cd mcp` and use `npx vitest` directly.
@@ -71,16 +75,19 @@ repo root holds only shared tooling, docs and the deployment files.
 
 ## Adding a chain
 
-Add one entry to `CHAINS` in [mcp/src/chains.ts](mcp/src/chains.ts). The `ChainName` type, the tool
+Add one entry to `TABLE` in [mcp/src/chains.ts](mcp/src/chains.ts). The `ChainName` type, the tool
 schemas, RPC selection, explorer links, Hypersync routing and `--help` all derive from it.
 `viem/chains` must export the chain; the `alchemy`, `infura`, `explorer` and `hypersync`
 fields are each optional.
 
 ## Adding a tool
 
-Add it to the relevant file in [mcp/src/tools/](mcp/src/tools/) with `createTool(title, description,
-schema, handler)` and export it from that file's default object — [mcp/src/tools/index.ts](mcp/src/tools/index.ts)
-registers everything it finds. Return `formatResponse(data)`; it serialises BigInts for you.
+Add it to the relevant file in [mcp/src/tools/](mcp/src/tools/) — `read/` or `sign/`, which is
+the group a host meters by — with `createTool(title, description, schema, handler, available?)`
+and export it from that file's default object; [mcp/src/tools/index.ts](mcp/src/tools/index.ts)
+registers everything those objects hold. `available` hides a tool the configuration cannot
+serve, as `simulate_bundle` does without an Alchemy key. Return `formatResponse(data)`; it
+serialises BigInts for you.
 
 Let errors throw. The MCP SDK turns a thrown error into a tool error, so a `catch` that only
 re-wraps the message is noise — catch only where you can add something the caller can act on.

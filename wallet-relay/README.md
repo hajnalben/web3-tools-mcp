@@ -9,8 +9,8 @@ You normally never install this. The MCP server embeds it and starts one on loca
 a transaction needs signing.
 
 Install it separately only to **host the page**, so a machine without a browser can still
-have something signed. It depends on express, cors and ws — about 4 MB, against ~180 MB for
-the server — so it runs anywhere that keeps a Node process alive and supports WebSockets.
+have something signed. It depends only on express and ws, so it runs anywhere that keeps a
+Node process alive and supports WebSockets.
 
 ```bash
 WALLET_TOKEN=<long random string> \
@@ -19,6 +19,11 @@ npx web3-wallet-relay
 ```
 
 Then point the MCP server at it with `WALLET_SERVER_URL` and the same `WALLET_TOKEN`.
+
+The pairing link carries a token derived from `WALLET_TOKEN` that can only answer signing
+requests, not make them. Sharing a pairing link is therefore not the same as sharing
+`WALLET_TOKEN` — but whoever has it can act as your wallet page, so a signing request can
+reach them instead of you.
 
 | Variable | |
 | --- | --- |

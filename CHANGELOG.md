@@ -2,6 +2,77 @@
 
 Notable changes per release. Dates are release dates; unreleased work sits at the top.
 
+## Unreleased
+
+### Added
+
+- **`simulate_bundle`** runs several transactions in order in one block, each on the state
+  the last left — approve then swap, deposit then borrow. Offered with an Alchemy key.
+- **Signing requests outlive their call.** One not approved in time comes back with a
+  `requestId`, and `check_signing_request` collects it instead of a second prompt landing in
+  the wallet. A phone request returns as soon as the wallet has it, and both signers wait
+  for the receipt, reporting mined, reverted or still pending. The signing page shows every
+  request waiting, approvable in any order.
+- A host assembling its own server can mount routes, hand a pairing made under a
+  placeholder to the address it proved, and draw the pairing QR as SVG (`qrSvg`).
+- The server declares an icon, so a connector list shows more than a letter.
+- `pair_phone_wallet` warns when the same wallet app is already paired, and reports a
+  pairing the wallet ended itself.
+
+### Changed
+
+- `trace_transaction`'s `traceType` is `trace`, `prestate` or `stateDiff`. `vmTrace` is gone:
+  it ran the prestate tracer under another name, and `stateDiff` asked for a tracer no node
+  has. Traces too large for an agent's context are cut short and say so.
+- `get_logs` returns at most 1,000 logs, with `truncated` and the `nextBlock` to continue
+  from. `toBlock` is inclusive on both paths, a list in `eventArgs` is an OR filter, and an
+  invalid `address` is an error rather than a filter silently dropped.
+- `get_balance`, `read_contract` and `batch_resolve_ens_names` take at most 25 items.
+- ENS tools take `mainnet`, `linea` or `base` — the chains that have a resolver — and the
+  no-op `universalResolver` parameter is gone.
+- `render.yaml` is a single service: the relay runs inside the MCP server, as on Fly.
+- Keeping OAuth state in Upstash needs per-field hash expiry (`HEXPIRE`, Redis ≥ 7.4), so
+  expired tokens no longer pile up. The file store prunes them on write.
+
+### Fixed
+
+- An ERC-721 `Transfer` reads as a token id, not as an ERC-20 transfer of nothing.
+- `send_erc20_token` no longer assumes 18 decimals. It reads them on-chain and refuses a
+  `decimals` that disagrees; a token whose decimals cannot be read needs them passed.
+- `write_contract` takes numeric arguments only as safe integers — pass a large uint or int
+  as a string — and coerces string arguments to their ABI types, as `read_contract` does.
+- `sign_message` sends the browser the message hex-encoded, as the phone gets it, so both
+  sign the same bytes. The phone signs on a chain its session approved, not mainnet.
+- Phone signing on `localhost` is refused up front: the phone has no route to that node. Use
+  the browser.
+- The signing preview names each labelled address as `Name (0x…)`, shows token amounts with
+  the token's address, and gives an amount whose decimals are unknown as the raw integer,
+  marked so, rather than assuming 18. Its summary includes `to`.
+- `get_logs` over Hypersync no longer drops the last block, reports a response cut short
+  by the server, or scans from genesis when `fromBlock` is omitted.
+- `get_error_signature` hashes tuple parameters correctly.
+- `get_gas_price` shows sub-gwei L2 prices instead of "0.00", and costs in the chain's own
+  native token.
+- An invalid, expired or replayed OAuth code or refresh token answers `invalid_grant`, not a
+  500, so connectors re-authorise instead of retrying.
+- Etherscan errors say why ("Invalid API Key", rate limit) rather than "NOTOK".
+- `npx web3-wallet-relay` starts the relay.
+
+### Security
+
+- The provider API key no longer appears in tool output.
+- `get_ens_avatar` returns the raw avatar record rather than fetching it server-side.
+- Requests carry `expiresAt`, and the signing page cancels an approval that arrives after
+  the request timed out or was disconnected. A request that failed any way but an explicit
+  rejection now reports `outcome_unknown` — it may still have been broadcast — instead of
+  `rejected_or_failed`, so an agent checks before retrying rather than paying twice.
+- The signing page is hardened against script injection and framing, with a strict CSP.
+- OAuth refresh tokens expire, and rotating `MCP_TOKEN` revokes every token issued under
+  it — existing tokens predate the binding, so single-token deployments re-authorise once.
+  The login page names the client and where it redirects, and cannot be framed.
+  `MCP_TRUST_PROXY` lets rate limiting see client addresses behind a proxy.
+- The hosted signer link is no longer written to the logs.
+
 ## [3.0.0] — 2026-09-23
 
 The theme is multi-tenancy: one server can now carry several people without their wallets
@@ -177,7 +248,7 @@ sign it.
   `call_contract_write` is now `write_contract` — the old pair gave no hint which one
   spent gas. The names now match viem's, and a saved prompt naming the old ones will need
   updating.
-- Every supported chain now lives in one table ([mcp/src/chains.ts](mcp/src/chains.ts)). Adding a
+- Every supported chain now lives in one table ([mcp/src/chains.ts](https://github.com/hajnalben/web3-tools-mcp/blob/main/mcp/src/chains.ts)). Adding a
   chain is a single entry; the tool schemas, RPC selection, explorer links, Hypersync
   routing and `--help` all derive from it.
 - Tool errors surface the underlying failure rather than a re-wrapped message that hid it.

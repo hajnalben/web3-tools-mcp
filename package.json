@@ -8,7 +8,7 @@
     "mcp"
   ],
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=20.19.0"
   },
   "scripts": {
     "build": "npm run build -w web3-wallet-relay && npm run build -w web3-tools-mcp",

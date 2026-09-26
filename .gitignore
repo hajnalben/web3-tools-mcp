@@ -23,6 +23,7 @@ Thumbs.db
 *.swo
 *~
 .claude/
+.serena/
 
 # TypeScript
 *.tsbuildinfo

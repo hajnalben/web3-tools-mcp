@@ -4,13 +4,13 @@
 
 **Your agent proposes the transaction. You approve it — in your own wallet, on your phone.** 📱
 
-30 MCP tools for reading any EVM network and signing transactions in *your own* wallet.
+32 MCP tools for reading any EVM network and signing transactions in *your own* wallet.
 Every transaction is decoded, named and simulated before you approve it.
 
 [![npm](https://img.shields.io/npm/v/web3-tools-mcp?color=%233856d6&label=npm)](https://www.npmjs.com/package/web3-tools-mcp)
 [![downloads](https://img.shields.io/npm/dm/web3-tools-mcp?color=%233856d6)](https://www.npmjs.com/package/web3-tools-mcp)
 [![node](https://img.shields.io/node/v/web3-tools-mcp?color=%233856d6)](https://nodejs.org)
-[![license](https://img.shields.io/npm/l/web3-tools-mcp?color=%233856d6)](LICENSE)
+[![license](https://img.shields.io/npm/l/web3-tools-mcp?color=%233856d6)](https://github.com/hajnalben/web3-tools-mcp/blob/main/LICENSE)
 
 </div>
 
@@ -22,7 +22,7 @@ One entry in that client's MCP config:
 ```
 
 Each app keeps that config somewhere different —
-[the file paths are below ↓](#-setup). You need Node.js ≥ 20; `npx` fetches the rest.
+[the file paths are below ↓](#-setup). You need Node.js ≥ 20.19; `npx` fetches the rest.
 
 **ChatGPT, Grok** and **claude.ai** cannot launch anything locally — they only reach a URL.
 [Host it once ↓](#-hosting) and add it as a connector, and there is nothing running on your
@@ -91,7 +91,7 @@ npx web3-tools-mcp --walletconnect-project-id YOUR_PROJECT_ID
 | 💾 | **It sticks.** The session is stored on disk (or in Redis when hosted), so it survives restarts and redeploys. Pair once, not once a day |
 | ✍️ | **You choose each time.** Every signing tool takes a required `signWith`, so the agent asks whether this one goes to your phone or the browser. A paired phone never quietly claims a request |
 | 🧾 | **You still see the decode.** The full preview comes back in the tool response — your wallet shows its own summary, so read ours before you approve theirs |
-| 🔌 | **Drop it any time.** `disconnect_phone_wallet` clears every session and pairing |
+| 🔌 | **Drop it any time.** `disconnect_phone_wallet` drops the wallet you name by `account`, or every session and pairing when you name none |
 
 Works with **MetaMask · Rabby · Trust · Coinbase Wallet** — anything speaking WalletConnect v2.
 
@@ -123,28 +123,36 @@ returns the page URL any time you want to open it yourself.
 ## 🧰 Tools
 
 <details>
-<summary><b>30 tools</b> — reads, writes, ENS, logs, tracing</summary>
+<summary><b>32 tools</b> — reads, writes, ENS, logs, tracing</summary>
 
 ### ✍️ Transactions & signing
 | Tool | |
 | --- | --- |
-| `write_contract` | Send a transaction calling a state-changing function, via your wallet |
+| `write_contract` | Send a transaction calling a state-changing function, via your wallet. Pass large integers as strings |
 | `send_native_token` | Send ETH or a native token |
-| `send_erc20_token` | Send an ERC-20 |
-| `sign_message` | Sign a message |
-| `wallet_status` | Which signer is connected — phone or browser |
+| `send_erc20_token` | Send an ERC-20, with decimals read on-chain — a `decimals` you pass must agree |
+| `sign_message` | Sign a message — the same bytes on either signer |
+| `check_signing_request` | Collect a request still awaiting approval, by its `requestId` |
+| `wallet_status` | Every signer and whether it is ready — phone wallets and the browser page |
 | `pair_phone_wallet` | Pair a phone over WalletConnect, returns a QR |
-| `disconnect_phone_wallet` | Drop every WalletConnect session and pairing |
+| `disconnect_phone_wallet` | Drop one paired wallet by `account`, or every session and pairing |
 
 The four signing tools take a required `signWith` of `phone` or `browser`. There is no
 default on purpose — the agent has to ask you, so a request never lands on a device you are
-not holding.
+not holding. On `localhost` only the browser can sign; a phone has no route to your node.
+With several phones paired, the optional `account` picks one by address;
+omitted, the most recently paired is used.
+
+A request not approved within the call comes back with a `requestId` instead of hanging,
+and `check_signing_request` collects it — asking again would put a second prompt in front
+of your wallet.
 
 ### 📜 Contracts
 | Tool | |
 | --- | --- |
-| `read_contract` | Read state via view/pure functions — batched, no wallet, no gas |
+| `read_contract` | Read state via view/pure functions — batched (up to 25 calls), no wallet, no gas |
 | `simulate_contract` | Simulate without broadcasting, with gas |
+| `simulate_bundle` | Simulate several transactions in order, each on the state the last left — approve → swap. Needs `ALCHEMY_API_KEY` |
 | `get_contract_abi` | ABI, with proxy detection and verification status |
 | `get_contract_source_code` | Verified source, proxies included |
 | `get_contract_source_file` | One file out of the cached source |
@@ -157,14 +165,20 @@ not holding.
 ### ⛓️ Chain data
 | Tool | |
 | --- | --- |
-| `get_balance` | Native or ERC-20 balances — batched |
-| `get_logs` | Query and decode events, with Hypersync fallback |
+| `get_balance` | Native or ERC-20 balances — batched, up to 25 queries |
+| `get_logs` | Query and decode events; Hypersync when the RPC refuses the range. At most 1,000 logs — past that it returns `truncated` and the `nextBlock` to continue from. A list in `eventArgs` matches any of its values |
 | `get_block_info` | Block data |
 | `get_storage_at` | Storage slots, with type decoding |
 | `get_gas_price` | Current gas — legacy and EIP-1559 |
 | `estimate_gas` | Gas for any transaction |
-| `trace_transaction` | Call tree, VM trace, state diff |
-| `debug_call` | Trace a call without broadcasting, falling back to a local anvil fork |
+| `trace_transaction` | Call tree, prestate or state diff |
+| `debug_call` | Trace a call without broadcasting, through a node at `ANVIL_RPC_URL` |
+
+Tracing prefers an RPC that exposes `debug_*`, and otherwise uses a node you already run at
+`ANVIL_RPC_URL` (default `127.0.0.1:8545`, e.g. `anvil --fork-url …`) — nothing is started
+for you. Replaying a transaction older than the fork re-forks that node, clearing its state,
+so it happens only with `ANVIL_ALLOW_RESET=1`. A hosted server has no default and traces only
+through an explicit `ANVIL_RPC_URL`.
 
 ### 🏷️ ENS
 | Tool | |
@@ -172,8 +186,10 @@ not holding.
 | `resolve_ens_name` | Name → address |
 | `reverse_resolve_ens` | Address → name |
 | `get_ens_text_record` | Text records |
-| `get_ens_avatar` | Avatar URI |
-| `batch_resolve_ens_names` | Many names at once |
+| `get_ens_avatar` | The raw avatar record — URL, data URI or NFT reference, not fetched |
+| `batch_resolve_ens_names` | Up to 25 names at once |
+
+ENS tools take `mainnet` (ENS), `linea` (Linea Names) or `base` (Basenames).
 
 </details>
 
@@ -196,7 +212,7 @@ not holding.
 | Unichain | 130 | ✅ |
 | Localhost | 1337 | ❌ |
 
-Adding one is a single entry in [`mcp/src/chains.ts`](mcp/src/chains.ts).
+Adding one is a single entry in [`mcp/src/chains.ts`](https://github.com/hajnalben/web3-tools-mcp/blob/main/mcp/src/chains.ts).
 
 </details>
 
@@ -291,7 +307,7 @@ What you lose is reach, not stability — so here is the honest version:
 | `WALLETCONNECT_PROJECT_ID` | [walletconnect](https://dashboard.walletconnect.com) | 📱 **No phone signing at all.** Browser wallet only, so a hosted instance has no way to sign |
 | `ALCHEMY_API_KEY`<br>or `INFURA_API_KEY`<br>or `CUSTOM_RPC` | [alchemy](https://alchemy.com) · [infura](https://infura.io) | **No historical state.** Public endpoints answer `403 Archive requests require a personal token`, which takes out balances, storage and calls at a past block, event ranges, and `trace_transaction` |
 | `ETHERSCAN_API_KEY` | [etherscan](https://etherscan.io/apis) | `get_contract_abi`, `get_contract_source_code` and `get_contract_source_file` refuse. Signing previews still decode — they try Sourcify first, then recover the ABI from bytecode |
-| `HYPERSYNC_API_KEY` | [envio](https://envio.dev) | Event queries fall back to plain RPC — slower, and past ranges then need one of the provider keys above |
+| `HYPERSYNC_API_KEY` | [envio](https://envio.dev) | `get_logs` asks the RPC first and falls back to Hypersync when the RPC refuses the range. Without a token that fallback is gone, so wide or past ranges depend on your provider's limits |
 
 So with nothing configured you get current balances, contract reads, gas, ENS, simulation
 and browser signing. Add `WALLETCONNECT_PROJECT_ID` for your phone and one provider key for
@@ -299,7 +315,7 @@ history, and everything above lights up.
 
 Every key has a matching flag (`--etherscan-api-key`, …), RPC selection falls back
 Alchemy → Infura → public, and `CUSTOM_RPC` overrides all of it.
-`npx web3-tools-mcp --help` lists them; [.env.example](.env.example) documents each one.
+`npx web3-tools-mcp --help` lists them; [.env.example](https://github.com/hajnalben/web3-tools-mcp/blob/main/.env.example) documents each one.
 
 ```bash
 npx web3-tools-mcp --etherscan-api-key KEY --walletconnect-project-id ID
@@ -319,17 +335,23 @@ transaction at your phone.
 <a href="https://fly.io/docs/launch/"><img src="https://img.shields.io/badge/Deploy%20on-Fly.io-8b5cf6?style=for-the-badge&logo=flydotio&logoColor=white" alt="Deploy on Fly.io" height="32"></a>
 
 **Render** reads `render.yaml`, generates `MCP_TOKEN` and asks for `WALLETCONNECT_PROJECT_ID`
-— genuinely one click.
+— one click, on a paid `starter` instance with a 1 GB disk so it stays awake and keeps the
+pairing. `MCP_PUBLIC_URL` defaults to the service's `onrender.com` address; set it only for a
+custom domain.
 
 **Fly** ships no deploy button, so it is four commands. Worth it for a personal instance:
 volumes come with any plan, so the pairing survives redeploys without paying for a disk.
 
 ```bash
-fly launch --no-deploy --copy-config
+fly launch --no-deploy --copy-config   # then set MCP_PUBLIC_URL in fly.toml to https://<app>.fly.dev
 fly volumes create data --size 1
 fly secrets set MCP_TOKEN=$(openssl rand -hex 24) WALLETCONNECT_PROJECT_ID=<id>
 fly deploy
 ```
+
+Without the right `MCP_PUBLIC_URL` the OAuth metadata and the wallet links point somewhere
+clients cannot reach. Both `fly.toml` and `render.yaml` set `MCP_TRUST_PROXY=1`, so rate
+limiting sees client addresses rather than the platform's proxy.
 
 <details>
 <summary>🐳 <b>Docker, and connecting a client</b></summary>
@@ -337,8 +359,10 @@ fly deploy
 There is a plain `Dockerfile` too, so Railway, Cloud Run or your own box work the same way:
 
 ```bash
+docker build -t web3-tools-mcp .
 docker run -p 8080:8080 \
   -e MCP_TOKEN=<long random string> \
+  -e MCP_PUBLIC_URL=https://your-host \
   -e WALLETCONNECT_PROJECT_ID=<id> \
   web3-tools-mcp
 ```
@@ -352,12 +376,25 @@ claude mcp add --transport http web3-tools https://your-host/mcp \
 
 Clients that cannot send a header — claude.ai connectors, and the browser and phone apps —
 use OAuth, which the server implements against the same credential: it shows a page asking
-for `MCP_TOKEN` and issues a token once you paste it. No identity provider, no accounts. Set
-`MCP_PUBLIC_URL` to the address clients reach you on, since OAuth metadata must advertise it.
+for `MCP_TOKEN` and issues a token once you paste it. No identity provider, no accounts.
 
 > 🔐 **`MCP_TOKEN` is mandatory** and the server refuses to start without it. Anyone who
 > reaches `/mcp` while your phone is paired can push signing prompts at it. You would still
 > approve each one, but that is a phishing surface, not a feature.
+
+| Variable | |
+| --- | --- |
+| `MCP_HTTP_PORT` | Serve over HTTP on this port instead of stdio. Also switches on the hosted guards: no `localhost` chain, no loopback tracing node |
+| `MCP_HTTP_HOST` | Bind address, default `0.0.0.0` |
+| `MCP_TOKEN` | The one credential, as a bearer header or through OAuth. Changing it revokes every OAuth token issued against the old one |
+| `MCP_PUBLIC_URL` | The address clients reach you on — advertised in OAuth metadata and used for wallet links |
+| `MCP_TRUST_PROXY` | Reverse-proxy hops to trust for client IPs in rate limiting. `1` behind Fly or Render; off by default |
+| `MCP_HOSTED` | The hosted guards without `MCP_HTTP_PORT`, for a host assembling its own server from the library |
+| `XDG_CONFIG_HOME` | Where pairings, OAuth tokens and the relay token are stored, under `web3-tools-mcp/` |
+| `UPSTASH_REDIS_REST_URL`<br>`UPSTASH_REDIS_REST_TOKEN` | Keep sessions and tokens in Redis instead. Needs per-field hash expiry (`HEXPIRE`: Upstash, or Redis ≥ 7.4) |
+| `WALLET_TOKEN` | Relay secret. Unset, a hosted server mints one per boot |
+| `WALLET_SERVER_URL` | A separately hosted relay, below |
+| `ANVIL_RPC_URL`<br>`ANVIL_ALLOW_RESET` | Tracing node, and whether it may be re-forked — see Tools |
 
 Two things decide whether the pairing survives:
 
@@ -365,41 +402,27 @@ Two things decide whether the pairing survives:
   transaction after an idle period waits for the host to wake — about a minute on a free tier.
 - 💾 **Give the session somewhere durable.** Most hosts have an ephemeral filesystem, so a
   plain file is lost on redeploy and you rescan the QR. Attach a volume and point
-  `XDG_CONFIG_HOME` at it (what `render.yaml` does), or set `UPSTASH_REDIS_REST_URL` and
-  `UPSTASH_REDIS_REST_TOKEN` ([Upstash](https://upstash.com) has a free plan).
+  `XDG_CONFIG_HOME` at it (what `render.yaml` and `fly.toml` do), or set
+  `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` ([Upstash](https://upstash.com)
+  has a free plan).
 
 Render's free Key Value instance is not an option here — no persistence, so the pairing
 disappears at its next maintenance.
 
 Both signers work on a hosted instance. The signing page is served from the same port as
 `/mcp`, so `https://your-host/#t=<relay token>` is your wallet page — no second service to
-deploy. Ask the agent for `wallet_status` to get the link; it is behind `MCP_TOKEN`, and the
-relay token is minted fresh each boot rather than stored, so the URL changes when you
-redeploy.
+deploy. Ask the agent for `wallet_status` to get the link; it is behind `MCP_TOKEN` and never written to the logs. Unless
+you set `WALLET_TOKEN`, the relay secret is minted fresh each boot rather than stored, so the
+URL changes when you redeploy.
 
 </details>
 
 <details>
 <summary>🖇️ <b>Host the signing page</b> separately</summary>
 
-The relay is its own package, [`wallet-relay/`](wallet-relay) — express, cors and ws, about
-4 MB installed against ~180 MB for the server. It runs anywhere that keeps a Node process
-alive and supports WebSockets.
-
-```bash
-WALLET_TOKEN=<long random string> \
-WALLET_PUBLIC_URL=https://wallet.example.com \
-npx web3-wallet-relay
-```
-
-Then point the server at it with `WALLET_SERVER_URL` and the same `WALLET_TOKEN`.
-`render.yaml` deploys it as-is. Anyone holding `WALLET_TOKEN` can send your browser a
-transaction to sign — treat it like a password, and always serve over HTTPS.
-
-The pairing link the server prints carries a different token, derived from that one, which
-can only answer signing requests and not make them. Sharing a pairing link is therefore not
-the same as sharing `WALLET_TOKEN` — but it still lets whoever has it act as your wallet
-page, so a signing request can reach them instead of you.
+The relay is its own package, [`web3-wallet-relay`](https://github.com/hajnalben/web3-tools-mcp/tree/main/wallet-relay),
+and runs anywhere that keeps a Node process alive and supports WebSockets. Its README covers
+hosting it; then point the server at it with `WALLET_SERVER_URL` and the same `WALLET_TOKEN`.
 
 Locally nothing changes: the server embeds the same relay.
 
@@ -421,11 +444,11 @@ npm run typecheck
 npm test
 ```
 
-Two workspaces: [`mcp/`](mcp) is this server, [`wallet-relay/`](wallet-relay) is the signing
-page. [CONTRIBUTING.md](CONTRIBUTING.md) covers running a checkout against a client, the
-layout, and how to add a chain or a tool. Releases: [CHANGELOG.md](CHANGELOG.md).
+Two workspaces: [`mcp/`](https://github.com/hajnalben/web3-tools-mcp/tree/main/mcp) is this server, [`wallet-relay/`](https://github.com/hajnalben/web3-tools-mcp/tree/main/wallet-relay) is the signing
+page. [CONTRIBUTING.md](https://github.com/hajnalben/web3-tools-mcp/blob/main/CONTRIBUTING.md) covers running a checkout against a client, the
+layout, and how to add a chain or a tool. Releases: [CHANGELOG.md](https://github.com/hajnalben/web3-tools-mcp/blob/main/CHANGELOG.md).
 
-Requires Node.js ≥ 20.
+Requires Node.js ≥ 20.19.
 
 ## 📄 License
 
