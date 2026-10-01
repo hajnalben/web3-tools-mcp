@@ -2,22 +2,20 @@
 
 Notable changes per release. Dates are release dates; unreleased work sits at the top.
 
-## Unreleased
+## [3.1.0] — 2026-10-01
+
+Mostly fixes, several of them for security — worth taking on any hosted server.
+
+From this release `web3-wallet-relay` shares the server's version number, jumping from 2.0.0
+to 3.1.0. The two speak one protocol that carries no version of its own, so the package
+version is what matches them: a relay hosted on its own runs at the version of the server
+pointing at it. `web3-tools-mcp` still pins it exactly.
 
 ### Added
 
-- **`simulate_bundle`** runs several transactions in order in one block, each on the state
-  the last left — approve then swap, deposit then borrow. Offered with an Alchemy key.
-- **Signing requests outlive their call.** One not approved in time comes back with a
-  `requestId`, and `check_signing_request` collects it instead of a second prompt landing in
-  the wallet. A phone request returns as soon as the wallet has it, and both signers wait
-  for the receipt, reporting mined, reverted or still pending. The signing page shows every
-  request waiting, approvable in any order.
-- A host assembling its own server can mount routes, hand a pairing made under a
-  placeholder to the address it proved, and draw the pairing QR as SVG (`qrSvg`).
-- The server declares an icon, so a connector list shows more than a letter.
-- `pair_phone_wallet` warns when the same wallet app is already paired, and reports a
-  pairing the wallet ended itself.
+- A host's `Login` can name the `credential` it checks, binding every code and token issued
+  under it so that rotating the secret revokes them, and its `page()` is told which client
+  is asking and where the code will go.
 
 ### Changed
 
@@ -36,7 +34,6 @@ Notable changes per release. Dates are release dates; unreleased work sits at th
 
 ### Fixed
 
-- An ERC-721 `Transfer` reads as a token id, not as an ERC-20 transfer of nothing.
 - `send_erc20_token` no longer assumes 18 decimals. It reads them on-chain and refuses a
   `decimals` that disagrees; a token whose decimals cannot be read needs them passed.
 - `write_contract` takes numeric arguments only as safe integers — pass a large uint or int
@@ -73,7 +70,7 @@ Notable changes per release. Dates are release dates; unreleased work sits at th
   `MCP_TRUST_PROXY` lets rate limiting see client addresses behind a proxy.
 - The hosted signer link is no longer written to the logs.
 
-## [3.0.0] — 2026-09-23
+## [3.0.0] — 2026-09-26
 
 The theme is multi-tenancy: one server can now carry several people without their wallets
 meeting. Nothing turns that on by itself — a server still authenticates its deployment
@@ -107,6 +104,22 @@ handshake changed, so a mismatched pair cannot pair at all.
   tools take `account` to choose between them, as does `disconnect_phone_wallet` — which
   still clears everything when no account is named. With one wallet paired nothing changes,
   and omitting `account` uses the most recently paired.
+- **`simulate_bundle`** runs several transactions in order in one block, each on the state
+  the last left — approve then swap, deposit then borrow. Offered with an Alchemy key.
+- **Signing requests outlive their call.** One not approved in time comes back with a
+  `requestId`, and `check_signing_request` collects it instead of a second prompt landing in
+  the wallet. A phone request returns as soon as the wallet has it, and both signers wait
+  for the receipt, reporting mined, reverted or still pending. The signing page shows every
+  request waiting, approvable in any order.
+- A host assembling its own server can mount routes, hand a pairing made under a
+  placeholder to the address it proved, and draw the pairing QR as SVG (`qrSvg`).
+- The server declares an icon, so a connector list shows more than a letter.
+- `pair_phone_wallet` warns when the same wallet app is already paired, and reports a
+  pairing the wallet ended itself.
+
+### Fixed
+
+- An ERC-721 `Transfer` reads as a token id, not as an ERC-20 transfer of nothing.
 
 ### Security
 

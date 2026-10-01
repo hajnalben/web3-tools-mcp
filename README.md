@@ -422,7 +422,8 @@ URL changes when you redeploy.
 
 The relay is its own package, [`web3-wallet-relay`](https://github.com/hajnalben/web3-tools-mcp/tree/main/wallet-relay),
 and runs anywhere that keeps a Node process alive and supports WebSockets. Its README covers
-hosting it; then point the server at it with `WALLET_SERVER_URL` and the same `WALLET_TOKEN`.
+hosting it; run it at this server's version, then point the server at it with
+`WALLET_SERVER_URL` and the same `WALLET_TOKEN`.
 
 Locally nothing changes: the server embeds the same relay.
 
