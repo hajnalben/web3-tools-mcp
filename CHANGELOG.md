@@ -2,7 +2,7 @@
 
 Notable changes per release. Dates are release dates; unreleased work sits at the top.
 
-## [Unreleased]
+## [3.2.0] — 2026-10-02
 
 ### Added
 

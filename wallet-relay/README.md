@@ -20,8 +20,8 @@ npx web3-wallet-relay
 
 Then point the MCP server at it with `WALLET_SERVER_URL` and the same `WALLET_TOKEN`.
 
-Run the relay at the same version as that server — `npx web3-wallet-relay@3.1.0` for
-web3-tools-mcp 3.1.0. The two share a version number because they share a protocol, and a
+Run the relay at the same version as that server — `npx web3-wallet-relay@3.2.0` for
+web3-tools-mcp 3.2.0. The two share a version number because they share a protocol, and a
 mismatched pair cannot pair at all.
 
 The pairing link carries a token derived from `WALLET_TOKEN` that can only answer signing
