@@ -9,6 +9,7 @@ import advancedTools from './read/advanced.js'
 import balanceTools from './read/balance.js'
 import contractTools from './read/contract.js'
 import contractInfoTools from './read/contract-info.js'
+import defiTools from './read/defi.js'
 import ensTools from './read/ens.js'
 import gasTools from './read/gas.js'
 import logTools from './read/logs.js'
@@ -36,6 +37,7 @@ const readTools = {
   ...advancedTools,
   ...ensTools,
   ...gasTools,
+  ...defiTools,
   // A signature already asked for and paid for; collecting it is not a second request.
   ...signingRequestTools
 } as const

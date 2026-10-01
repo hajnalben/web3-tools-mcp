@@ -1,11 +1,13 @@
 <div align="center">
 
-# web3-tools-mcp
+<img src="https://raw.githubusercontent.com/hajnalben/web3-tools-mcp/main/wallet-relay/public/icon.png" alt="Web3 Tools logo" width="112" height="112">
 
-**Your agent proposes the transaction. You approve it — in your own wallet, on your phone.** 📱
+# Web3 Tools MCP
 
-32 MCP tools for reading any EVM network and signing transactions in *your own* wallet.
-Every transaction is decoded, named and simulated before you approve it.
+**Everything onchain your agent needs — read, price, simulate, sign — with you holding the keys.** 🔐
+
+35 MCP tools across 19 EVM networks, signing in *your own* wallet on your phone or in the browser.
+Every transaction is decoded, named and simulated before it reaches your wallet.
 
 [![npm](https://img.shields.io/npm/v/web3-tools-mcp?color=%233856d6&label=npm)](https://www.npmjs.com/package/web3-tools-mcp)
 [![downloads](https://img.shields.io/npm/dm/web3-tools-mcp?color=%233856d6)](https://www.npmjs.com/package/web3-tools-mcp)
@@ -123,7 +125,7 @@ returns the page URL any time you want to open it yourself.
 ## 🧰 Tools
 
 <details>
-<summary><b>32 tools</b> — reads, writes, ENS, logs, tracing</summary>
+<summary><b>35 tools</b> — reads, writes, ENS, logs, tracing</summary>
 
 ### ✍️ Transactions & signing
 | Tool | |
@@ -173,6 +175,9 @@ of your wallet.
 | `estimate_gas` | Gas for any transaction |
 | `trace_transaction` | Call tree, prestate or state diff |
 | `debug_call` | Trace a call without broadcasting, through a node at `ANVIL_RPC_URL` |
+| `get_portfolio` | A wallet's native and ERC-20 holdings across chains, valued in USD; tokens DefiLlama cannot price — spam, mostly — are left out. Needs `ALCHEMY_API_KEY` |
+| `get_token_prices` | USD prices from DefiLlama, now or at a past timestamp, up to 25 tokens; the zero address prices the native token |
+| `get_yield_pools` | DefiLlama yield pools by chain, token and protocol, highest APY first |
 
 Tracing prefers an RPC that exposes `debug_*`, and otherwise uses a node you already run at
 `ANVIL_RPC_URL` (default `127.0.0.1:8545`, e.g. `anvil --fork-url …`) — nothing is started
@@ -194,7 +199,7 @@ ENS tools take `mainnet` (ENS), `linea` (Linea Names) or `base` (Basenames).
 </details>
 
 <details>
-<summary>🌐 <b>13 networks</b></summary>
+<summary>🌐 <b>20 networks</b></summary>
 
 | Network | Chain ID | Hypersync |
 | --- | --- | --- |
@@ -204,12 +209,19 @@ ENS tools take `mainnet` (ENS), `linea` (Linea Names) or `base` (Basenames).
 | Base | 8453 | ✅ |
 | BNB Chain | 56 | ✅ |
 | Gnosis | 100 | ✅ |
-| Sonic | 146 | ✅ |
 | Optimism | 10 | ✅ |
 | Polygon | 137 | ✅ |
 | zkSync Era | 324 | ✅ |
 | Linea | 59144 | ✅ |
 | Unichain | 130 | ✅ |
+| Monad | 143 | ✅ |
+| Robinhood Chain | 4663 | ✅ |
+| Arc | 5042 | ✅ |
+| Plasma | 9745 | ✅ |
+| Ink | 57073 | ✅ |
+| Mantle | 5000 | ✅ |
+| Celo | 42220 | ✅ |
+| HyperEVM | 999 | ✅ |
 | Localhost | 1337 | ❌ |
 
 Adding one is a single entry in [`mcp/src/chains.ts`](https://github.com/hajnalben/web3-tools-mcp/blob/main/mcp/src/chains.ts).
@@ -305,7 +317,7 @@ What you lose is reach, not stability — so here is the honest version:
 | Key | Free from | Without it |
 | --- | --- | --- |
 | `WALLETCONNECT_PROJECT_ID` | [walletconnect](https://dashboard.walletconnect.com) | 📱 **No phone signing at all.** Browser wallet only, so a hosted instance has no way to sign |
-| `ALCHEMY_API_KEY`<br>or `INFURA_API_KEY`<br>or `CUSTOM_RPC` | [alchemy](https://alchemy.com) · [infura](https://infura.io) | **No historical state.** Public endpoints answer `403 Archive requests require a personal token`, which takes out balances, storage and calls at a past block, event ranges, and `trace_transaction` |
+| `ALCHEMY_API_KEY`<br>or `CUSTOM_RPC` | [alchemy](https://alchemy.com) | **No historical state.** Public endpoints answer `403 Archive requests require a personal token`, which takes out balances, storage and calls at a past block, event ranges, and `trace_transaction` |
 | `ETHERSCAN_API_KEY` | [etherscan](https://etherscan.io/apis) | `get_contract_abi`, `get_contract_source_code` and `get_contract_source_file` refuse. Signing previews still decode — they try Sourcify first, then recover the ABI from bytecode |
 | `HYPERSYNC_API_KEY` | [envio](https://envio.dev) | `get_logs` asks the RPC first and falls back to Hypersync when the RPC refuses the range. Without a token that fallback is gone, so wide or past ranges depend on your provider's limits |
 
@@ -314,7 +326,7 @@ and browser signing. Add `WALLETCONNECT_PROJECT_ID` for your phone and one provi
 history, and everything above lights up.
 
 Every key has a matching flag (`--etherscan-api-key`, …), RPC selection falls back
-Alchemy → Infura → public, and `CUSTOM_RPC` overrides all of it.
+Alchemy → public, and `CUSTOM_RPC` overrides both, chain by chain.
 `npx web3-tools-mcp --help` lists them; [.env.example](https://github.com/hajnalben/web3-tools-mcp/blob/main/.env.example) documents each one.
 
 ```bash

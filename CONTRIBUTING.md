@@ -48,7 +48,7 @@ CI runs all four. `npm run format` before committing is usually all it takes.
 The tests reach live chains, and a public RPC serves only recent state. Anything needing
 historical state, logs over a past range, `eth_simulateV1` or tracing skips itself when the
 matching credential is absent, so `npm test` is green on a checkout with no `.env` at all —
-it just covers less. For the full run set `ALCHEMY_API_KEY` (or `INFURA_API_KEY`, or
+it just covers less. For the full run set `ALCHEMY_API_KEY` (or
 `CUSTOM_RPC`) and `HYPERSYNC_API_KEY`; tracing also needs a node exposing `debug_traceCall`
 at `ANVIL_RPC_URL` (default `127.0.0.1:8545`, e.g. `anvil --fork-url …`). The flags live in [mcp/test/setup.ts](mcp/test/setup.ts).
 
@@ -77,7 +77,7 @@ repo root holds only shared tooling, docs and the deployment files.
 
 Add one entry to `TABLE` in [mcp/src/chains.ts](mcp/src/chains.ts). The `ChainName` type, the tool
 schemas, RPC selection, explorer links, Hypersync routing and `--help` all derive from it.
-`viem/chains` must export the chain; the `alchemy`, `infura`, `explorer` and `hypersync`
+`viem/chains` must export the chain; the `alchemy`, `explorer`, `hypersync` and `llama`
 fields are each optional.
 
 ## Adding a tool

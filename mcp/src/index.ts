@@ -27,7 +27,6 @@ OPTIONS:
   --help, -h                    Show this help message
   --etherscan-api-key <key>     Etherscan API key (for contract ABI retrieval)
   --alchemy-api-key <key>       Alchemy API key (for enhanced RPC)
-  --infura-api-key <key>        Infura API key (for alternative RPC)
   --hypersync-api-key <key>     Hypersync API key (for fast event queries)
   --walletconnect-project-id <id>
                                 WalletConnect project id, to sign from a phone
@@ -37,7 +36,6 @@ OPTIONS:
 ENVIRONMENT VARIABLES:
   ETHERSCAN_API_KEY             Alternative to --etherscan-api-key
   ALCHEMY_API_KEY               Alternative to --alchemy-api-key
-  INFURA_API_KEY                Alternative to --infura-api-key
   HYPERSYNC_API_KEY             Alternative to --hypersync-api-key
   WALLETCONNECT_PROJECT_ID      Alternative to --walletconnect-project-id
   CUSTOM_RPC                    Alternative to --custom-rpc
@@ -83,9 +81,6 @@ if (config.etherscanApiKey) {
 }
 if (config.alchemyApiKey) {
   console.error('[MCP] Alchemy API key configured')
-}
-if (config.infuraApiKey) {
-  console.error('[MCP] Infura API key configured')
 }
 if (config.walletConnectProjectId) {
   console.error('[MCP] WalletConnect project id configured — phone signing available')

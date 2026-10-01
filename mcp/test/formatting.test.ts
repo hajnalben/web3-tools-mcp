@@ -18,7 +18,6 @@ import { convertEventArgsToTypes, redactSecrets, rpcReason, TtlCache } from '../
 
 const SECRETS = {
   alchemyApiKey: 'alchemy-secret-key-123',
-  infuraApiKey: 'infura-secret-key-456',
   etherscanApiKey: 'etherscan-secret-key-789',
   hypersyncApiKey: 'hypersync-secret-key-000'
 }
@@ -58,10 +57,10 @@ describe('secret redaction', () => {
 
   it('redacts keys from what a tool returns', async () => {
     const tools = registered(async () => ({
-      content: [{ type: 'text', text: `{"error":"https://x.infura.io/v3/${SECRETS.infuraApiKey}"}` }]
+      content: [{ type: 'text', text: `{"error":"https://base-mainnet.g.alchemy.com/v2/${SECRETS.alchemyApiKey}"}` }]
     }))
     const result = await tools.get('get_gas_price')?.({ chain: 'mainnet' }, {})
-    expect(result?.content[0].text).toBe('{"error":"https://x.infura.io/v3/[redacted]"}')
+    expect(result?.content[0].text).toBe('{"error":"https://base-mainnet.g.alchemy.com/v2/[redacted]"}')
   })
 
   it('redacts keys from what a tool throws', async () => {

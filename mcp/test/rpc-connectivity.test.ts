@@ -9,7 +9,6 @@ describe('RPC Connectivity', () => {
     const config: Config = {
       etherscanApiKey: process.env.ETHERSCAN_API_KEY,
       alchemyApiKey: process.env.ALCHEMY_API_KEY,
-      infuraApiKey: process.env.INFURA_API_KEY,
       hypersyncApiKey: process.env.HYPERSYNC_API_KEY
     }
     clientManager = initializeClientManager(config)

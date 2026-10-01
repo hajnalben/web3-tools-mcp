@@ -4,11 +4,32 @@ Notable changes per release. Dates are release dates; unreleased work sits at th
 
 ## [Unreleased]
 
+### Added
+
+- Monad, Robinhood Chain, Arc, Plasma, Ink, Mantle, Celo and HyperEVM (`hyperevm`).
+  `get_portfolio` skips Plasma and Mantle, where Alchemy has no token API, and
+  `get_contract_abi` cannot reach Ink, which Etherscan does not index.
+- **`get_portfolio`** values a wallet across chains in one call: Alchemy finds the native and
+  ERC20 balances, DefiLlama prices them, largest first. Tokens DefiLlama cannot price are
+  left out and counted, which drops the spam airdrops that otherwise bury a wallet's real
+  holdings. Offered when `ALCHEMY_API_KEY` is set.
+- **`get_token_prices`** prices up to 25 tokens on a chain in USD, now or at a past
+  timestamp, from DefiLlama's free API — the zero address for the native token. Tokens it
+  cannot price come back as unpriced.
+- **`get_yield_pools`** lists DefiLlama's lending, staking and liquidity pools on the
+  supported chains, filtered by token, protocol, stablecoins and TVL, highest APY first.
+
 ### Changed
 
 - The signing page moved from `/` to `/sign/`, leaving the root free for a host's own page.
   Signing links in the old `/#t=…` form no longer open it. `SIGN_PATH` is exported for hosts
   building links.
+
+### Removed
+
+- Infura: `INFURA_API_KEY` and `--infura-api-key`. Any other provider still works through
+  `CUSTOM_RPC`, chain by chain.
+- Sonic. Alchemy serves no token API there, and its DeFi activity has largely moved on.
 
 ## [3.1.0] — 2026-10-01
 

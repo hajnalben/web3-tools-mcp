@@ -16,14 +16,13 @@ config({ path: fileURLToPath(new URL('../../.env', import.meta.url)), quiet: tru
  *
  * Set them in .env locally, or as repository secrets for CI.
  */
-export const hasProviderRpc = Boolean(process.env.ALCHEMY_API_KEY || process.env.INFURA_API_KEY || process.env.CUSTOM_RPC)
+export const hasProviderRpc = Boolean(process.env.ALCHEMY_API_KEY || process.env.CUSTOM_RPC)
 export const hasHypersync = Boolean(process.env.HYPERSYNC_API_KEY)
 export const hasAnvil = await isDebugNodeAvailable()
 
 beforeAll(() => {
   initializeClientManager({
     alchemyApiKey: process.env.ALCHEMY_API_KEY,
-    infuraApiKey: process.env.INFURA_API_KEY,
     etherscanApiKey: process.env.ETHERSCAN_API_KEY,
     hypersyncApiKey: process.env.HYPERSYNC_API_KEY,
     walletConnectProjectId: process.env.WALLETCONNECT_PROJECT_ID,

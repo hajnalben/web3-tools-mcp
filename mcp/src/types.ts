@@ -11,7 +11,6 @@ export interface AbiError {
 export interface Config {
   etherscanApiKey?: string
   alchemyApiKey?: string
-  infuraApiKey?: string
   customRpcUrls?: Record<string, string>
   hypersyncApiKey?: string
   walletConnectProjectId?: string

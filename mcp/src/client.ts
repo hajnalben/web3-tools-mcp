@@ -4,14 +4,13 @@ import type { Config } from './types.js'
 
 export { SUPPORTED_CHAINS } from './chains.js'
 
-/** Custom URL first, then whichever provider key is configured, then the public endpoint. */
+/** Custom URL first, then Alchemy when a key is configured, then the public endpoint. */
 function getRpcUrl(chainName: ChainName, config: Config): string {
   const custom = config.customRpcUrls?.[chainName]
   if (custom) return custom
 
-  const { alchemy, infura, fallback } = CHAINS[chainName]
+  const { alchemy, fallback } = CHAINS[chainName]
   if (alchemy && config.alchemyApiKey) return `https://${alchemy}.g.alchemy.com/v2/${config.alchemyApiKey}`
-  if (infura && config.infuraApiKey) return `https://${infura}.infura.io/v3/${config.infuraApiKey}`
   return fallback
 }
 

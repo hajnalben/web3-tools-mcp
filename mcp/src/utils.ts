@@ -211,7 +211,7 @@ export function rpcReason(error: unknown): string {
 
 /** Every configured key blanked out of `text`: RPC URLs carry them, and errors quote the URL. */
 export function redactSecrets(text: string, config: Config): string {
-  return [config.alchemyApiKey, config.infuraApiKey, config.etherscanApiKey, config.hypersyncApiKey].reduce<string>(
+  return [config.alchemyApiKey, config.etherscanApiKey, config.hypersyncApiKey].reduce<string>(
     (out, secret) => (secret ? out.replaceAll(secret, '[redacted]') : out),
     text
   )
@@ -277,7 +277,6 @@ export function parseCommandLineArgs(): Config & { showHelp?: boolean } {
   // Parse environment variables and command line arguments
   config.etherscanApiKey = process.env.ETHERSCAN_API_KEY || getArgValue('--etherscan-api-key')
   config.alchemyApiKey = process.env.ALCHEMY_API_KEY || getArgValue('--alchemy-api-key')
-  config.infuraApiKey = process.env.INFURA_API_KEY || getArgValue('--infura-api-key')
   config.hypersyncApiKey = process.env.HYPERSYNC_API_KEY || getArgValue('--hypersync-api-key')
   config.walletConnectProjectId = process.env.WALLETCONNECT_PROJECT_ID || getArgValue('--walletconnect-project-id')
 
