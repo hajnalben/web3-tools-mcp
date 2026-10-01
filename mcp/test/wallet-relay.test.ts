@@ -366,7 +366,8 @@ describe('WalletRelay', () => {
     // The host's own routes keep their paths; the relay takes what is left.
     const mcp = await fetch('http://127.0.0.1:4114/mcp')
     expect(await mcp.json()).toEqual({ mine: true })
-    expect((await fetch('http://127.0.0.1:4114/')).status).toBe(200)
+    expect((await fetch('http://127.0.0.1:4114/sign/')).status).toBe(200)
+    expect(relay.getUrl()).toBe(`/sign/#t=${SIGNER_TOKEN}`)
 
     // And the socket rides the same server, so a page served here can sign.
     const ws = new WebSocket('ws://127.0.0.1:4114', { origin: 'http://127.0.0.1:4114' })
@@ -506,7 +507,7 @@ describe('WalletRelay', () => {
     await client.connect()
 
     expect(client.relay).toBeNull()
-    expect(client.getUrl()).toBe(`http://127.0.0.1:4108/#t=${SIGNER_TOKEN}`)
+    expect(client.getUrl()).toBe(`http://127.0.0.1:4108/sign/#t=${SIGNER_TOKEN}`)
 
     // Prove it is really attached to that relay: its signer count reaches the client.
     const signer = await connect(relay.getPort(), { token: SIGNER_TOKEN, role: 'signer', address: '0xabc' })
@@ -714,7 +715,7 @@ describe('WalletRelay', () => {
 
   it('serves the page with a CSP that forbids inline script and framing', async () => {
     const relay = await startRelay(4137)
-    const page = await fetch(`http://127.0.0.1:${relay.getPort()}/`)
+    const page = await fetch(`http://127.0.0.1:${relay.getPort()}/sign/`)
 
     const csp = page.headers.get('content-security-policy')
     expect(csp).toContain("script-src 'self'")
@@ -738,7 +739,7 @@ describe('WalletRelay', () => {
     relays.push(relay)
     relay.attach(server, (relayApp) => app.use(relayApp))
 
-    const page = await fetch('http://127.0.0.1:4138/')
+    const page = await fetch('http://127.0.0.1:4138/sign/')
     expect(page.headers.get('content-security-policy')).toContain("frame-ancestors 'none'")
 
     const handshake = (origin: string) => {

@@ -2,6 +2,14 @@
 
 Notable changes per release. Dates are release dates; unreleased work sits at the top.
 
+## [Unreleased]
+
+### Changed
+
+- The signing page moved from `/` to `/sign/`, leaving the root free for a host's own page.
+  Signing links in the old `/#t=…` form no longer open it. `SIGN_PATH` is exported for hosts
+  building links.
+
 ## [3.1.0] — 2026-10-01
 
 Mostly fixes, several of them for security — worth taking on any hosted server.

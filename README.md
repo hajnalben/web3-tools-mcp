@@ -410,8 +410,8 @@ Render's free Key Value instance is not an option here — no persistence, so th
 disappears at its next maintenance.
 
 Both signers work on a hosted instance. The signing page is served from the same port as
-`/mcp`, so `https://your-host/#t=<relay token>` is your wallet page — no second service to
-deploy. Ask the agent for `wallet_status` to get the link; it is behind `MCP_TOKEN` and never written to the logs. Unless
+`/mcp`, so `https://your-host/sign/#t=<relay token>` is your wallet page — no second service to
+deploy. The root is left free for a page of your own. Ask the agent for `wallet_status` to get the link; it is behind `MCP_TOKEN` and never written to the logs. Unless
 you set `WALLET_TOKEN`, the relay secret is minted fresh each boot rather than stored, so the
 URL changes when you redeploy.
 

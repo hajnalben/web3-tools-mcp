@@ -4,7 +4,7 @@ import { getOAuthProtectedResourceMetadataUrl, mcpAuthRouter } from '@modelconte
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import express, { type Express } from 'express'
-import type { WalletRelay } from 'web3-wallet-relay'
+import { SIGN_PATH, type WalletRelay } from 'web3-wallet-relay'
 import { HOSTED } from './hosted.js'
 import { SingleUserOAuthProvider } from './oauth.js'
 
@@ -136,11 +136,11 @@ export async function startHttpServer(options: HttpServerOptions): Promise<{ url
   // The signing page rides on this same server, so a hosted deployment can offer browser
   // signing without a second service: one platform port serves both /mcp and the page.
   // Mounted last, so the routes above keep their paths — the relay only claims what is
-  // left, which is the static page at the root.
+  // left, which is the static page at /sign/.
   let walletUrl: string | undefined
   if (options.walletRelay) {
     options.walletRelay.attach(server, (relayApp) => app.use(relayApp))
-    walletUrl = `${publicUrl.replace(/\/$/, '')}/#t=${options.walletRelay.signerToken}`
+    walletUrl = `${publicUrl.replace(/\/$/, '')}${SIGN_PATH}#t=${options.walletRelay.signerToken}`
   }
 
   return { url: `${publicUrl.replace(/\/$/, '')}/mcp`, port: (server.address() as { port: number }).port, walletUrl }

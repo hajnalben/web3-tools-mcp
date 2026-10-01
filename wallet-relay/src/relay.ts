@@ -157,6 +157,12 @@ const PAGE_HEADERS = {
   'X-Content-Type-Options': 'nosniff'
 }
 
+/**
+ * Where the signing page is served, leaving the root to whoever hosts the relay. The
+ * trailing slash matters: the page loads its scripts by relative path.
+ */
+export const SIGN_PATH = '/sign/'
+
 /** Ports a local relay may occupy, 3456 upward. Requesters scan the same span. */
 export const LOCAL_PORT_ATTEMPTS = 5
 
@@ -205,6 +211,7 @@ export class WalletRelay {
 
     this.app = express()
     this.app.use(
+      SIGN_PATH,
       express.static(join(__dirname, '..', 'public'), { index: 'wallet.html', setHeaders: (res) => res.set(PAGE_HEADERS) })
     )
     this.app.get('/health', (_req, res) => {
@@ -535,8 +542,8 @@ export class WalletRelay {
    * and the caller passes the one belonging to whoever is being sent this link.
    */
   getUrl(token: string = this.signerToken): string {
-    const base = process.env.WALLET_PUBLIC_URL ?? (this.borrowedServer ? '/' : `http://127.0.0.1:${this.port}/`)
-    return `${base}#t=${token}`
+    const base = process.env.WALLET_PUBLIC_URL ?? (this.borrowedServer ? '' : `http://127.0.0.1:${this.port}`)
+    return `${base.replace(/\/$/, '')}${SIGN_PATH}#t=${token}`
   }
 
   async stop(): Promise<void> {

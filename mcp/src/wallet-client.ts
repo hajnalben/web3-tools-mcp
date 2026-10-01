@@ -3,7 +3,14 @@ import { randomBytes } from 'node:crypto'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { LOCAL_PORT_ATTEMPTS, roomToken, type TransactionRequest, type TransactionResponse, WalletRelay } from 'web3-wallet-relay'
+import {
+  LOCAL_PORT_ATTEMPTS,
+  roomToken,
+  SIGN_PATH,
+  type TransactionRequest,
+  type TransactionResponse,
+  WalletRelay
+} from 'web3-wallet-relay'
 import { WebSocket } from 'ws'
 import { HOSTED } from './hosted.js'
 
@@ -26,7 +33,7 @@ const IDLE_TIMEOUT = 10 * 60_000
 /** Always the signer token: this URL goes to a browser, which may not act as a requester. */
 function pairingUrlFor(port: number, secret: string, identity: string): string {
   const base = HOSTED ? (process.env.MCP_PUBLIC_URL ?? `http://localhost:${port}`) : `http://127.0.0.1:${port}`
-  return `${base.replace(/\/$/, '')}/#t=${roomToken(secret, identity, 'signer')}`
+  return `${base.replace(/\/$/, '')}${SIGN_PATH}#t=${roomToken(secret, identity, 'signer')}`
 }
 const SIGNER_WAIT_TIMEOUT = 30_000
 const CONNECT_ATTEMPTS = 8
