@@ -95,13 +95,26 @@ re-wraps the message is noise — catch only where you can add something the cal
 ## Commits and releases
 
 Conventional commits (`feat:`, `fix:`, `chore:`), and note user-visible changes in
-[CHANGELOG.md](CHANGELOG.md). Releases are cut from `main`: bump the version, run the checks,
-then publish from the root, naming the workspace. The repo root itself is private and is
-never published.
+[CHANGELOG.md](CHANGELOG.md). Releases are cut from `main`, and both packages always carry
+the same version: they share a wire protocol, and a test fails if the two versions or the
+server's exact pin on the relay drift apart. Bump all three, run the checks, then tag:
 
 ```bash
-npm publish -w web3-wallet-relay   # first when both changed, so the server resolves it
-npm publish -w web3-tools-mcp
+git tag v3.1.1 && git push origin v3.1.1
+```
+
+The [Publish](.github/workflows/publish.yml) workflow checks the tag against the version,
+runs the checks again, and stages both packages on npm through trusted publishing — no token
+is stored anywhere. Neither goes live until a maintainer approves it with 2FA under Staged
+Packages on npmjs.com; approve the relay first, since the server pins it. The repo root itself
+is private and is never published.
+
+The trust is set once per package, from an account with 2FA. The registry now requires a
+permission, which npm before 11.21 cannot send, so it answers those with a bare 400:
+
+```bash
+npx -y npm@11.21.0 trust github <package> --file publish.yml --repo hajnalben/web3-tools-mcp \
+  --env npm --allow-stage-publish
 ```
 
 A `prepack` script copies the shared documents into each package at publish time, so there

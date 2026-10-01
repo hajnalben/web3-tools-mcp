@@ -1,0 +1,62 @@
+name: Publish
+
+# Releasing is pushing a vX.Y.Z tag. Both packages carry that one version. They are staged on
+# npm through trusted publishing, with no token stored anywhere, and go live once a
+# maintainer approves each with 2FA on npmjs.com — the relay first, as the server pins it.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+
+      - run: npm ci
+
+      - name: Tag matches the packages' version
+        run: test "$GITHUB_REF_NAME" = "v$(node -p "require('./mcp/package.json').version")"
+
+      - run: npm run lint
+
+      - run: npm run typecheck
+
+      - run: npm test
+        env:
+          ALCHEMY_API_KEY: ${{ secrets.ALCHEMY_API_KEY }}
+          ETHERSCAN_API_KEY: ${{ secrets.ETHERSCAN_API_KEY }}
+          HYPERSYNC_API_KEY: ${{ secrets.HYPERSYNC_API_KEY }}
+          CI: true
+
+  stage:
+    needs: verify
+    runs-on: ubuntu-latest
+    # The trusted publisher on npm names this environment, which deploys only from v* tags.
+    environment: npm
+    # Only this job can mint a publish token, and it runs no dependency install scripts.
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.x
+          registry-url: https://registry.npmjs.org
+
+      - run: npm ci --ignore-scripts
+
+      - run: npm install -g npm@11.21.0 # npm stage needs 11.15
+
+      - run: npm stage publish -w web3-wallet-relay
+
+      - run: npm stage publish -w web3-tools-mcp
