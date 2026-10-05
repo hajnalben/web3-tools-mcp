@@ -60,3 +60,24 @@ jobs:
       - run: npm stage publish -w web3-wallet-relay
 
       - run: npm stage publish -w web3-tools-mcp
+
+  # Announced once both packages are staged; they go live on npm when approved. A tag with no
+  # CHANGELOG section fails here, after staging, and the job can be rerun once one is added.
+  release:
+    needs: stage
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Notes from CHANGELOG.md
+        run: |
+          awk -v heading="## [${GITHUB_REF_NAME#v}]" \
+            'index($0, "## [") == 1 { if (on) exit; on = index($0, heading) == 1; next } on' \
+            CHANGELOG.md > notes.md
+          test -s notes.md
+
+      - run: gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes-file notes.md --verify-tag
+        env:
+          GH_TOKEN: ${{ github.token }}
