@@ -1,6 +1,7 @@
 import { zeroAddress } from 'viem'
 import { describe, expect, it } from 'vitest'
 import defiTools from '../../src/tools/read/defi.js'
+import { hasDefillamaPro } from '../setup.js'
 
 const ARBITRUM_USDC = '0xaf88d065e77c8cC2239327C5EDb3A432268e5831'
 
@@ -26,7 +27,7 @@ describe('DeFi Tools', () => {
     expect(prices[0].updatedAt.startsWith('2025-01-01')).toBe(true)
   })
 
-  it('filters yield pools by chain, token and protocol, highest APY first', async () => {
+  it.skipIf(!hasDefillamaPro)('filters yield pools by chain, token and protocol, highest APY first', async () => {
     const result = await defiTools.get_yield_pools.handler({
       chain: 'arbitrum',
       symbol: 'usdc',

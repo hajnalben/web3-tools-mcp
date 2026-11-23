@@ -2,6 +2,14 @@
 
 Notable changes per release. Dates are release dates; unreleased work sits at the top.
 
+## Unreleased
+
+### Changed
+
+- **`get_yield_pools`** needs `DEFILLAMA_API_KEY` (or `--defillama-api-key`), a DefiLlama Pro
+  key, and is not offered without one: DefiLlama is retiring its free pool list. Each call
+  spends one Pro credit. `get_token_prices` and `get_portfolio` still use the free API.
+
 ## [3.2.0] — 2026-10-02
 
 ### Added

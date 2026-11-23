@@ -177,7 +177,7 @@ of your wallet.
 | `debug_call` | Trace a call without broadcasting, through a node at `ANVIL_RPC_URL` |
 | `get_portfolio` | A wallet's native and ERC-20 holdings across chains, valued in USD; tokens DefiLlama cannot price — spam, mostly — are left out. Needs `ALCHEMY_API_KEY` |
 | `get_token_prices` | USD prices from DefiLlama, now or at a past timestamp, up to 25 tokens; the zero address prices the native token |
-| `get_yield_pools` | DefiLlama yield pools by chain, token and protocol, highest APY first |
+| `get_yield_pools` | DefiLlama yield pools by chain, token and protocol, highest APY first. Needs `DEFILLAMA_API_KEY` |
 
 Tracing prefers an RPC that exposes `debug_*`, and otherwise uses a node you already run at
 `ANVIL_RPC_URL` (default `127.0.0.1:8545`, e.g. `anvil --fork-url …`) — nothing is started
@@ -320,6 +320,7 @@ What you lose is reach, not stability — so here is the honest version:
 | `ALCHEMY_API_KEY`<br>or `CUSTOM_RPC` | [alchemy](https://alchemy.com) | **No historical state.** Public endpoints answer `403 Archive requests require a personal token`, which takes out balances, storage and calls at a past block, event ranges, and `trace_transaction` |
 | `ETHERSCAN_API_KEY` | [etherscan](https://etherscan.io/apis) | `get_contract_abi`, `get_contract_source_code` and `get_contract_source_file` refuse. Signing previews still decode — they try Sourcify first, then recover the ABI from bytecode |
 | `HYPERSYNC_API_KEY` | [envio](https://envio.dev) | `get_logs` asks the RPC first and falls back to Hypersync when the RPC refuses the range. Without a token that fallback is gone, so wide or past ranges depend on your provider's limits |
+| `DEFILLAMA_API_KEY` | [defillama](https://defillama.com/subscription) (paid Pro) | `get_yield_pools` is not offered: DefiLlama serves its pool list only through Pro. Prices and `get_portfolio` stay on the free API |
 
 So with nothing configured you get current balances, contract reads, gas, ENS, simulation
 and browser signing. Add `WALLETCONNECT_PROJECT_ID` for your phone and one provider key for

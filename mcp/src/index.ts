@@ -28,6 +28,7 @@ OPTIONS:
   --etherscan-api-key <key>     Etherscan API key (for contract ABI retrieval)
   --alchemy-api-key <key>       Alchemy API key (for enhanced RPC)
   --hypersync-api-key <key>     Hypersync API key (for fast event queries)
+  --defillama-api-key <key>     DefiLlama Pro API key (for get_yield_pools)
   --walletconnect-project-id <id>
                                 WalletConnect project id, to sign from a phone
   --custom-rpc <json>           Custom RPC URLs as JSON object
@@ -37,6 +38,7 @@ ENVIRONMENT VARIABLES:
   ETHERSCAN_API_KEY             Alternative to --etherscan-api-key
   ALCHEMY_API_KEY               Alternative to --alchemy-api-key
   HYPERSYNC_API_KEY             Alternative to --hypersync-api-key
+  DEFILLAMA_API_KEY             Alternative to --defillama-api-key
   WALLETCONNECT_PROJECT_ID      Alternative to --walletconnect-project-id
   CUSTOM_RPC                    Alternative to --custom-rpc
   MCP_HTTP_PORT                 Serve MCP over HTTP on this port instead of stdio
@@ -81,6 +83,9 @@ if (config.etherscanApiKey) {
 }
 if (config.alchemyApiKey) {
   console.error('[MCP] Alchemy API key configured')
+}
+if (config.defillamaApiKey) {
+  console.error('[MCP] DefiLlama Pro API key configured')
 }
 if (config.walletConnectProjectId) {
   console.error('[MCP] WalletConnect project id configured — phone signing available')

@@ -18,6 +18,7 @@ config({ path: fileURLToPath(new URL('../../.env', import.meta.url)), quiet: tru
  */
 export const hasProviderRpc = Boolean(process.env.ALCHEMY_API_KEY || process.env.CUSTOM_RPC)
 export const hasHypersync = Boolean(process.env.HYPERSYNC_API_KEY)
+export const hasDefillamaPro = Boolean(process.env.DEFILLAMA_API_KEY)
 export const hasAnvil = await isDebugNodeAvailable()
 
 beforeAll(() => {
@@ -25,6 +26,7 @@ beforeAll(() => {
     alchemyApiKey: process.env.ALCHEMY_API_KEY,
     etherscanApiKey: process.env.ETHERSCAN_API_KEY,
     hypersyncApiKey: process.env.HYPERSYNC_API_KEY,
+    defillamaApiKey: process.env.DEFILLAMA_API_KEY,
     walletConnectProjectId: process.env.WALLETCONNECT_PROJECT_ID,
     customRpcUrls: process.env.CUSTOM_RPC ? JSON.parse(process.env.CUSTOM_RPC) : undefined
   })

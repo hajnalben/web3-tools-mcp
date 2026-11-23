@@ -13,6 +13,7 @@ export interface Config {
   alchemyApiKey?: string
   customRpcUrls?: Record<string, string>
   hypersyncApiKey?: string
+  defillamaApiKey?: string
   walletConnectProjectId?: string
 }
 

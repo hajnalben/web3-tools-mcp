@@ -246,8 +246,9 @@ export default {
       const symbol = args.symbol?.toUpperCase()
       const project = args.project?.toLowerCase()
 
-      // ponytail: fetches DefiLlama's whole pool list (~12 MB) per call; cache it for a few minutes if calls pile up.
-      const { data } = await llama<{ data: LlamaPool[] }>('https://yields.llama.fi/pools')
+      // ponytail: fetches DefiLlama's whole pool list (~11 MB, one Pro credit) per call; cache it for a few minutes if calls pile up.
+      const key = getClientManager().getConfig().defillamaApiKey
+      const { data } = await llama<{ data: LlamaPool[] }>(`https://pro-api.llama.fi/${key}/yields/pools`)
 
       const matching = data
         .filter(
@@ -282,6 +283,8 @@ export default {
           url: `https://defillama.com/yields/pool/${pool.pool}`
         }))
       })
-    }
+    },
+    // DefiLlama serves the pool list only through Pro.
+    () => Boolean(getClientManager().getConfig().defillamaApiKey)
   )
 }
