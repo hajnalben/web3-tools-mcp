@@ -87,7 +87,7 @@ describe('Gas Tools', () => {
         to: USDC_CONTRACT,
         functionAbi: 'function transfer(address to, uint256 amount)',
         args: [RECIPIENT, '1000000'], // 1 USDC (6 decimals)
-        from: '0x28C6c06298d514Db089934071355E5743bf21d60' // Binance 14 (has USDC)
+        from: '0x98C23E9d8f34FEFb1B7BD6a91B7FF122F4e16F5c' // Aave v3 aEthUSDC, which holds the market's USDC
       })
 
       const data = JSON.parse(result.content[0].text)
@@ -140,7 +140,7 @@ describe('Gas Tools', () => {
 
   describe.skipIf(!process.env.ALCHEMY_API_KEY)('simulate_bundle', () => {
     const USDC = '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48'
-    const HOLDER = '0x28C6c06298d514Db089934071355E5743bf21d60' // Binance 14
+    const HOLDER = '0x98C23E9d8f34FEFb1B7BD6a91B7FF122F4e16F5c' // Aave v3 aEthUSDC
     const SPENDER = '0x000000000000000000000000000000000000dEaD'
     const approve = 'function approve(address spender, uint256 amount) returns (bool)'
 
@@ -215,7 +215,7 @@ describe('Gas Tools', () => {
     it('should simulate a state-changing function', async () => {
       const USDC_CONTRACT = '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48'
       const RECIPIENT = '0x0000000000000000000000000000000000000001'
-      const SENDER = '0x28C6c06298d514Db089934071355E5743bf21d60' // Binance 14
+      const SENDER = '0x98C23E9d8f34FEFb1B7BD6a91B7FF122F4e16F5c' // Aave v3 aEthUSDC
 
       const result = await gasTools.simulate_contract.handler({
         chain: 'mainnet',
