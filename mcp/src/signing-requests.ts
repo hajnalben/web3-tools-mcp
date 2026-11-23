@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto'
 import { log } from './log.js'
+import type { TxPreview } from './preview.js'
 
 /**
  * A signature that outlives the tool call that asked for it.
@@ -43,6 +44,8 @@ export interface SigningRequest {
   stage: 'approval' | 'mining'
   /** Known once approved, so a request can be followed on an explorer before it settles. */
   txHash?: string
+  /** What the wallet is being asked to approve, decoded and simulated. Transactions only. */
+  preview?: TxPreview
   startedAt: number
   state: SigningState
   settledAt?: number
@@ -57,6 +60,8 @@ export interface SigningProgress {
    * no session, an unapproved chain, a reverted simulation — has already thrown.
    */
   waiting: () => void
+  /** Decoded and simulated, so whoever is following can see what is being approved. */
+  previewed: (preview: TxPreview) => void
   /** Approved and broadcast. Nothing is settled until it is mined. */
   mining: (txHash: string) => void
 }
@@ -135,6 +140,9 @@ export async function signingCall<T>(
   // caller still inside its grace would rather have the mined result than a request id.
   const started = run({
     waiting: () => handedOff(),
+    previewed: (preview) => {
+      request.preview = preview
+    },
     mining: (txHash) => {
       request.stage = 'mining'
       request.txHash = txHash
@@ -182,11 +190,12 @@ export async function collectSigningRequest(id: string, identity: string, graceM
 
   const request = requests.get(id)
   if (!request || request.identity !== identity) {
-    throw new Error(`No signing request ${id} is waiting. It may have been collected already, or it expired.`)
+    throw new Error(`No signing request ${id} is waiting. It may have expired.`)
   }
 
+  // A settled request stays readable until it expires: the agent and a signing card on the
+  // host may both be following it, and whichever looks second must not be told it vanished.
   if (request.state === 'pending') await race(request, graceMs)
-  if (request.state !== 'pending') requests.delete(id)
 
   return view(request)
 }

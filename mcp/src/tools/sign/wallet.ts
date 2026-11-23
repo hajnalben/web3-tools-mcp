@@ -5,7 +5,7 @@ import { pendingSigningRequests } from '../../signing-requests.js'
 import type { ChainName } from '../../types.js'
 import { createTool, formatResponse } from '../../utils.js'
 import { getWalletClient } from '../../wallet-client.js'
-import { getPhoneSigner, pairingLinks } from '../../walletconnect.js'
+import { getPhoneSigner, pairingLinks, qrSvg } from '../../walletconnect.js'
 import { describeError, failure } from './errors.js'
 
 /**
@@ -60,7 +60,7 @@ export default {
         const uri = await phone.pair(chains, identity)
         const projectId = getClientManager().getConfig().walletConnectProjectId as string
 
-        return formatResponse({
+        const response = formatResponse({
           qr: await qrFor(uri),
           uri,
           // Pairing adds rather than replaces, so say what is already there — scanning this
@@ -89,6 +89,8 @@ export default {
             'links, or copy the uri and paste it into your wallet under WalletConnect — every wallet supports ' +
             'that, and it is the one that always works. Then run wallet_status to confirm.'
         })
+        // For the pairing card: a scannable QR it cannot draw itself, kept out of the model's context.
+        return { ...response, _meta: { 'web3-tools/qr-svg': qrSvg(uri) } }
       } catch (error) {
         return failure(error, 'Could not start WalletConnect pairing')
       }

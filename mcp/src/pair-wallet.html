@@ -1,0 +1,435 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pair a phone wallet</title>
+<style>
+  /* Same tokens as the signing card: the host's theme first, the signing page's palette otherwise. */
+  :root {
+    color-scheme: light dark;
+    --bg: var(--color-background-primary, light-dark(#ffffff, #161b22));
+    --bg-2: var(--color-background-secondary, light-dark(#f4f6f8, #1b212a));
+    --text: var(--color-text-primary, light-dark(#101620, #e6edf3));
+    --text-2: var(--color-text-secondary, light-dark(#58626f, #9aa5b1));
+    --border: var(--color-border-primary, light-dark(#e2e6ea, #262d38));
+    --border-strong: light-dark(#ced5dd, #38414f);
+    --accent: light-dark(#3856d6, #7d97ff);
+    --accent-soft: light-dark(#eef1fe, rgba(125, 151, 255, 0.14));
+    --ok: var(--color-text-success, light-dark(#0d7a45, #5ed39a));
+    --ok-bg: var(--color-background-success, light-dark(#eaf7f0, rgba(46, 160, 97, 0.14)));
+    --bad: var(--color-text-danger, light-dark(#b3251d, #ff9a92));
+    --warn: var(--color-text-warning, light-dark(#8a5a00, #f0c36d));
+    --warn-bg: var(--color-background-warning, light-dark(#fdf6e7, rgba(187, 128, 9, 0.14)));
+    --warn-ring: var(--color-border-warning, light-dark(#efdcae, rgba(240, 195, 109, 0.26)));
+    --sans: var(--font-sans, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif);
+    --mono: var(--font-mono, ui-monospace, "SF Mono", Menlo, Consolas, monospace);
+    --ease: cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  * { box-sizing: border-box; }
+  ::selection { background: var(--accent-soft); color: var(--text); }
+  body {
+    margin: 0;
+    padding: 18px 20px;
+    background: var(--bg);
+    color: var(--text);
+    font: 14px/1.5 var(--sans);
+    font-variant-numeric: tabular-nums;
+    -webkit-font-smoothing: antialiased;
+  }
+  svg.i { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
+  [hidden] { display: none !important; }
+  .mono { font-family: var(--mono); font-size: 12.5px; }
+
+  h1 { margin: 0; font-size: 18px; font-weight: 600; letter-spacing: -0.015em; line-height: 1.3; text-wrap: balance; }
+  .sub { margin: 4px 0 0; color: var(--text-2); font-size: 13px; text-wrap: pretty; }
+  .sub b { color: var(--text); font-weight: 500; }
+
+  /* QR beside the ways to open it here; stacked when the chat is narrow. */
+  .pair { display: grid; gap: 16px; margin-top: 16px; justify-items: center; }
+  @media (min-width: 460px) {
+    .pair { grid-template-columns: 184px 1fr; gap: 22px; align-items: start; justify-items: stretch; }
+  }
+
+  /* Scanners want dark on light, so the code keeps a white tile in either theme. */
+  .qr {
+    position: relative;
+    width: 184px;
+    margin: 0;
+    aspect-ratio: 1;
+    border-radius: 14px;
+    background: #fff;
+    box-shadow: inset 0 0 0 1px var(--border), 0 1px 2px rgba(16, 24, 40, 0.06);
+    overflow: hidden;
+  }
+  .qr svg { display: block; width: 100%; height: 100%; transition: opacity 0.5s var(--ease), filter 0.5s var(--ease); }
+  .qr[data-state=expired] svg { opacity: 0.12; filter: blur(2px); }
+  .qr-over {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-content: center;
+    justify-items: center;
+    gap: 6px;
+    padding: 16px;
+    text-align: center;
+    color: #101620;
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .qr-over svg.i { width: 34px; height: 34px; stroke-width: 2; }
+  .qr-over small { color: #58626f; font-weight: 400; }
+
+  .side { display: grid; gap: 10px; align-content: start; width: 100%; }
+  .side-label { margin: 0; color: var(--text-2); font-size: 12px; font-weight: 500; }
+  .wallets { display: flex; flex-wrap: wrap; gap: 6px; }
+  .wallet, .copy {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 32px;
+    padding: 0 11px;
+    border: 0;
+    border-radius: 8px;
+    background: var(--bg);
+    box-shadow: inset 0 0 0 1px var(--border);
+    color: var(--text);
+    font: 500 13px/1 var(--sans);
+    text-decoration: none;
+    cursor: pointer;
+    transition: box-shadow 0.15s, background-color 0.15s, transform 0.1s;
+  }
+  .wallet svg.i { width: 13px; height: 13px; color: var(--text-2); }
+  @media (hover: hover) {
+    .wallet:hover, .copy:hover { background: var(--bg-2); box-shadow: inset 0 0 0 1px var(--border-strong); }
+  }
+  .wallet:active, .copy:active { transform: scale(0.97); }
+  .wallet:focus-visible, .copy:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  details { display: contents; }
+  summary { list-style: none; display: inline-flex; align-items: center; height: 32px; padding: 0 6px; color: var(--text-2); font-size: 13px; cursor: pointer; border-radius: 8px; }
+  summary::-webkit-details-marker { display: none; }
+  details[open] summary { display: none; }
+
+  .copy-row { display: grid; gap: 6px; padding-top: 10px; border-top: 1px solid var(--border); }
+  .copy { justify-self: start; background: var(--accent); color: light-dark(#ffffff, #10161f); box-shadow: none; }
+  @media (hover: hover) { .copy:hover { background: light-dark(#2c45b4, #93a9ff); box-shadow: none; } }
+  .copy[data-done] svg.i { animation: pop 0.3s var(--ease); }
+  @keyframes pop { from { transform: scale(0.4); opacity: 0; } }
+  .uri { width: 100%; padding: 7px 9px; border: 0; border-radius: 8px; background: var(--bg-2); box-shadow: inset 0 0 0 1px var(--border); color: var(--text); font: 12px var(--mono); }
+  .uri:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .note { margin: 0; color: var(--text-2); font-size: 12px; }
+
+  .caveat { display: flex; gap: 8px; margin: 14px 0 0; padding: 9px 12px; border-radius: 10px; background: var(--warn-bg); box-shadow: inset 0 0 0 1px var(--warn-ring); color: var(--warn); font-size: 13px; }
+  .caveat svg.i { margin-top: 2px; }
+
+  /* Connected: the card becomes the record of what was granted. */
+  .granted { display: grid; grid-template-columns: auto 1fr; column-gap: 10px; row-gap: 2px; margin-top: 14px; padding: 12px 14px; border-radius: 10px; background: var(--ok-bg); animation: settle 0.6s var(--ease); }
+  .granted svg.i { grid-row: span 3; width: 22px; height: 22px; color: var(--ok); }
+  .granted .mono { color: var(--text); word-break: break-all; }
+  .granted span { color: var(--text-2); font-size: 13px; }
+  @keyframes settle { from { opacity: 0; transform: translateY(4px); } }
+
+  .status { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 16px -20px -18px; padding: 10px 20px; border-top: 1px solid var(--border); background: var(--bg-2); font-size: 13px; }
+  .state { display: inline-flex; align-items: center; gap: 8px; font-weight: 500; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-2); flex: none; }
+  .status[data-tone=wait] .dot { background: var(--accent); animation: beckon 1.8s var(--ease) infinite; }
+  .status[data-tone=ok] .dot { background: var(--ok); }
+  .status[data-tone=ok] .state { color: var(--ok); }
+  .status[data-tone=warn] .dot { background: var(--warn); }
+  .status[data-tone=warn] .state { color: var(--warn); }
+  .status[data-tone=bad] .dot { background: var(--bad); }
+  .status[data-tone=bad] .state { color: var(--bad); }
+  .clock { color: var(--text-2); white-space: nowrap; }
+  @keyframes beckon {
+    0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 45%, transparent); }
+    100% { box-shadow: 0 0 0 7px transparent; }
+  }
+
+  @media (max-width: 380px) {
+    body { padding-inline: 16px; }
+    .status { margin-inline: -16px; padding-inline: 16px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+  }
+</style>
+</head>
+<body>
+  <svg aria-hidden="true" style="display:none">
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+    <symbol id="i-check-circle" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m8 12.5 2.8 2.8L16.5 9"/></symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></symbol>
+    <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></symbol>
+    <symbol id="i-out" viewBox="0 0 24 24"><path d="M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></symbol>
+  </svg>
+
+  <h1 id="title">Connect a phone wallet</h1>
+  <p class="sub" id="sub">Preparing a pairing code</p>
+
+  <div class="pair" id="pair" hidden>
+    <figure class="qr" id="qr" data-state="waiting" role="img" aria-label="WalletConnect pairing code">
+      <div class="qr-over" id="qr-over" hidden></div>
+    </figure>
+
+    <div class="side">
+      <p class="side-label" id="wallets-label">Or open a wallet on this device</p>
+      <div class="wallets" id="wallets"></div>
+      <div class="copy-row">
+        <button class="copy" id="copy" type="button"><svg class="i" aria-hidden="true"><use href="#i-copy"/></svg><span id="copy-label">Copy pairing link</span></button>
+        <input class="uri" id="uri" readonly hidden aria-label="Pairing link">
+        <p class="note" id="note">Any wallet takes it: paste it under WalletConnect.</p>
+      </div>
+    </div>
+  </div>
+
+  <p class="caveat" id="caveat" hidden></p>
+  <div class="granted" id="granted" hidden></div>
+
+  <div class="status" id="status" data-tone="wait" role="status" aria-live="polite">
+    <span class="state"><span class="dot" aria-hidden="true"></span><span id="state">Waiting for your wallet</span></span>
+    <span class="clock" id="clock"></span>
+  </div>
+
+<script>
+'use strict'
+
+// Speaks MCP Apps (io.modelcontextprotocol/ui) to the host over postMessage. This card shows a
+// WalletConnect pairing and follows it until a wallet approves; it never holds a key.
+
+const $ = (id) => document.getElementById(id)
+const short = (hex) => (typeof hex === 'string' && hex.length > 12 ? `${hex.slice(0, 6)}…${hex.slice(-4)}` : hex)
+const icon = (name) => `<svg class="i" aria-hidden="true"><use href="#i-${name}"/></svg>`
+const VISIBLE_WALLETS = 6
+
+let nextId = 1
+const calls = new Map()
+let host = {}
+let uri
+let expiresAt
+let done = false
+
+function post(message) {
+  window.parent.postMessage({ jsonrpc: '2.0', ...message }, '*')
+}
+
+function request(method, params) {
+  const id = nextId++
+  post({ id, method, params })
+  return new Promise((resolve, reject) => calls.set(id, { resolve, reject }))
+}
+
+window.addEventListener('message', (event) => {
+  if (event.source !== window.parent) return
+  const message = event.data
+  if (!message || message.jsonrpc !== '2.0') return
+
+  if (!message.method && calls.has(message.id)) {
+    const call = calls.get(message.id)
+    calls.delete(message.id)
+    message.error ? call.reject(new Error(message.error.message)) : call.resolve(message.result)
+    return
+  }
+
+  switch (message.method) {
+    case 'ui/notifications/tool-result':
+      return onToolResult(message.params)
+    case 'ui/notifications/tool-cancelled':
+      return fail('Pairing was cancelled', message.params?.reason)
+    case 'ui/notifications/host-context-changed':
+      return applyContext(message.params)
+    case 'ui/resource-teardown':
+    case 'ping':
+      return post({ id: message.id, result: {} })
+  }
+})
+
+function applyContext(context) {
+  if (!context) return
+  if (context.theme) document.documentElement.style.colorScheme = context.theme
+  for (const [name, value] of Object.entries(context.styles?.variables ?? {})) {
+    if (value) document.documentElement.style.setProperty(name, value)
+  }
+}
+
+function parse(result) {
+  const text = result?.content?.find((block) => block.type === 'text')?.text
+  try {
+    return JSON.parse(text)
+  } catch {
+    return { success: false, message: text ?? 'No result' }
+  }
+}
+
+function setStatus(tone, text, clock = '') {
+  $('status').dataset.tone = tone
+  $('state').textContent = text
+  $('clock').textContent = clock
+}
+
+function onToolResult(result) {
+  const data = parse(result)
+  if (result.isError || data.success === false || !data.uri) {
+    return fail(data.message ?? 'Could not start pairing', data.error)
+  }
+
+  uri = data.uri
+  expiresAt = Number(new URL(uri).searchParams.get('expiryTimestamp')) * 1000 || undefined
+
+  $('sub').replaceChildren('Scan it with your wallet app. The wallet will name the requester as ')
+  $('sub').append(Object.assign(document.createElement('b'), { textContent: data.shownInWallet ?? 'web3-tools-mcp' }), '.')
+
+  const svg = result._meta?.['web3-tools/qr-svg']
+  if (typeof svg === 'string' && svg.startsWith('<svg')) $('qr').insertAdjacentHTML('afterbegin', svg)
+  else $('qr').hidden = true
+
+  showWallets(data.openOnThisDevice ?? {})
+  if (data.alreadyPaired?.length) {
+    const names = data.alreadyPaired.map((p) => `${p.wallet ?? 'a wallet'} (${short(p.address)})`).join(', ')
+    $('caveat').innerHTML = icon('alert')
+    $('caveat').append(Object.assign(document.createElement('span'), {
+      textContent: `Already paired: ${names}. Approving in the same app may replace it; use a different wallet app to keep both.`
+    }))
+    $('caveat').hidden = false
+  }
+  $('pair').hidden = false
+
+  tick()
+  follow()
+}
+
+function showWallets(links) {
+  const make = ([name, href]) => {
+    const a = document.createElement('a')
+    a.className = 'wallet'
+    a.href = href
+    a.target = '_blank'
+    a.rel = 'noopener'
+    a.append(name)
+    a.insertAdjacentHTML('beforeend', icon('out'))
+    return a
+  }
+  const entries = Object.entries(links)
+  $('wallets').replaceChildren(...entries.slice(0, VISIBLE_WALLETS).map(make))
+  if (entries.length > VISIBLE_WALLETS) {
+    const more = document.createElement('details')
+    const summary = document.createElement('summary')
+    summary.textContent = `${entries.length - VISIBLE_WALLETS} more`
+    more.append(summary, ...entries.slice(VISIBLE_WALLETS).map(make))
+    $('wallets').append(more)
+  }
+  $('wallets-label').hidden = !entries.length
+}
+
+/** Long-polls wait_for_pairing, an app-only tool that holds each call until a wallet approves or ~25s pass. */
+async function follow() {
+  if (!host.serverTools) return
+  for (let first = true; !done; first = false) {
+    if (!first) await new Promise((resolve) => setTimeout(resolve, 1000))
+    let data
+    try {
+      data = parse(await request('tools/call', { name: 'wait_for_pairing', arguments: { uri } }))
+    } catch {
+      return // The countdown still runs; Claude can confirm with wallet_status.
+    }
+    if (data.status === 'paired') return paired(data)
+    if (data.status === 'expired') return expire()
+    if (data.status !== 'waiting') return
+  }
+}
+
+function tick() {
+  if (done) return
+  if (!expiresAt) return setStatus('wait', 'Waiting for your wallet')
+  const left = Math.max(0, Math.round((expiresAt - Date.now()) / 1000))
+  if (left === 0) return expire()
+  setStatus('wait', 'Waiting for your wallet', `Expires in ${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`)
+  setTimeout(tick, 1000)
+}
+
+function paired(data) {
+  done = true
+  $('title').textContent = 'Phone wallet connected'
+  $('sub').textContent = 'Claude can now send this wallet requests to sign. Each one still waits for your approval in the wallet.'
+  $('pair').hidden = true
+  $('caveat').hidden = true
+  const granted = $('granted')
+  const wallet = Object.assign(document.createElement('strong'), { textContent: data.wallet ?? 'Wallet' })
+  const address = Object.assign(document.createElement('span'), { className: 'mono', textContent: data.address ?? '' })
+  const reach = Object.assign(document.createElement('span'), { textContent: data.chains ? `Approved for ${data.chains} network${data.chains === 1 ? '' : 's'}` : '' })
+  granted.innerHTML = icon('check-circle')
+  granted.append(wallet, address, reach)
+  granted.hidden = false
+  setStatus('ok', 'Connected')
+
+  request('ui/update-model-context', {
+    content: [{ type: 'text', text: `Phone wallet paired: ${data.wallet ?? 'a wallet'} ${data.address} (${data.chains} networks). Signing tools can use signWith "phone".` }]
+  }).catch(() => {})
+}
+
+function expire() {
+  if (done) return
+  done = true
+  $('qr').dataset.state = 'expired'
+  $('qr-over').innerHTML = `${icon('clock')}<span>Code expired</span><small>Ask Claude to pair again</small>`
+  $('qr-over').hidden = false
+  $('pair').querySelector('.side').hidden = true
+  $('caveat').hidden = true
+  setStatus('warn', 'This pairing code expired')
+}
+
+function fail(message, detail) {
+  done = true
+  $('title').textContent = 'Could not pair a wallet'
+  $('sub').textContent = detail ? `${message}. ${detail}` : message
+  $('pair').hidden = true
+  setStatus('bad', 'Not paired')
+}
+
+// Wallet links and anything else go through the host when it can open them; a sandboxed frame may not.
+document.addEventListener('click', (event) => {
+  const link = event.target.closest('a[href]')
+  if (!link || !host.openLinks) return
+  event.preventDefault()
+  request('ui/open-link', { url: link.href }).catch(() => {
+    $('note').textContent = 'That wallet link did not open here. Copy the pairing link and paste it in the wallet instead.'
+  })
+})
+
+$('copy').addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText(uri)
+    $('copy').dataset.done = ''
+    $('copy').querySelector('use').setAttribute('href', '#i-check')
+    $('copy-label').textContent = 'Copied'
+    setTimeout(() => {
+      delete $('copy').dataset.done
+      $('copy').querySelector('use').setAttribute('href', '#i-copy')
+      $('copy-label').textContent = 'Copy pairing link'
+    }, 1800)
+  } catch {
+    // The host did not grant clipboard access: hand over the text to copy by hand.
+    $('copy-label').textContent = 'Select and copy'
+    $('uri').value = uri
+    $('uri').hidden = false
+    $('uri').select()
+  }
+})
+
+new ResizeObserver(() => {
+  const { width, height } = document.documentElement.getBoundingClientRect()
+  post({ method: 'ui/notifications/size-changed', params: { width: Math.ceil(width), height: Math.ceil(height) } })
+}).observe(document.documentElement)
+
+request('ui/initialize', {
+  protocolVersion: '2026-01-26',
+  appInfo: { name: 'web3-tools pairing card', version: '1' },
+  appCapabilities: { availableDisplayModes: ['inline'] }
+}).then((result) => {
+  host = result?.hostCapabilities ?? {}
+  applyContext(result?.hostContext)
+  post({ method: 'ui/notifications/initialized', params: {} })
+})
+</script>
+</body>
+</html>

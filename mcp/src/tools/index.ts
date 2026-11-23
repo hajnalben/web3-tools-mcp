@@ -4,6 +4,7 @@ import type { ServerNotification, ServerRequest } from '@modelcontextprotocol/sd
 import { getClientManager } from '../client.js'
 import { identityFrom } from '../context.js'
 import type { ToolResult } from '../types.js'
+import { TOOL_UI } from '../ui.js'
 import { redactSecrets } from '../utils.js'
 import advancedTools from './read/advanced.js'
 import balanceTools from './read/balance.js'
@@ -82,7 +83,8 @@ export function registerAllTools(server: McpServer, middleware?: ToolMiddleware)
       {
         title: tool.title,
         description: tool.description,
-        inputSchema: tool.schema.shape
+        inputSchema: tool.schema.shape,
+        ...(TOOL_UI[name] && { _meta: { ui: TOOL_UI[name] } })
       },
       async (args: any, extra: RequestHandlerExtra<ServerRequest, ServerNotification>) => {
         // Passed to every handler; the ones that reach a signer must say whose it is.

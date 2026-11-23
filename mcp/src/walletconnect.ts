@@ -25,6 +25,8 @@ async function importSignClient() {
 
 interface Session {
   topic: string
+  /** The pairing the session was approved over: the topic in the `wc:` URI that was scanned. */
+  pairingTopic?: string
   accounts: string[]
   chains: number[]
   peer?: string
@@ -348,6 +350,7 @@ export class PhoneSigner {
       const accounts = session.namespaces.eip155?.accounts ?? []
       return {
         topic: session.topic,
+        pairingTopic: session.pairingTopic,
         accounts: [...new Set(accounts.map((a) => a.split(':')[2] as string))],
         chains: [...new Set(accounts.map((a) => Number(a.split(':')[1])))],
         peer: session.peer?.metadata?.name

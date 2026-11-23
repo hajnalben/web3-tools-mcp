@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto'
 import { type AbiFunction, type Address, encodeFunctionData, isAddress, parseAbiItem, parseUnits, toHex } from 'viem'
 import { z } from 'zod'
 import { tokenMeta } from '../../chain-meta.js'
+import { CHAINS } from '../../chains.js'
 import { getClientManager, SUPPORTED_CHAINS } from '../../client.js'
 import { log } from '../../log.js'
 import { buildTxPreview, type RawTx, type TxPreview } from '../../preview.js'
@@ -139,6 +140,7 @@ async function signOnPhone(
 ) {
   const { phone, from } = await requirePhoneSession(identity, account)
   const preview = await buildTxPreview(chain, tx, from)
+  progress.previewed(preview)
 
   const txHash = await phone.request(
     chain,
@@ -175,6 +177,7 @@ async function requestSignature(
   await wallet.waitForSigner()
 
   const preview = await buildTxPreview(chain, tx, wallet.getAddress())
+  progress.previewed(preview)
 
   const txHash = await wallet.request({
     id: generateRequestId(),
@@ -202,6 +205,7 @@ function awaitingApproval(request: SigningRequest) {
     requestId: request.id,
     signedWith: request.signer,
     what: request.summary,
+    ...(request.preview && { preview: previewSummary(request.preview) }),
     nextStep: `Tell the user to approve it${request.signer === 'phone' ? ' in their phone wallet — some wallets do not notify, so they may need to open the app themselves' : ' in the signing page'}, then call check_signing_request with requestId "${request.id}". Do not call this tool again: that would ask for a second signature.`,
     message: 'Sent to the wallet. Nothing has been signed or broadcast yet.'
   })
@@ -238,12 +242,20 @@ function minedOutcome(receipt: { status: 'mined' | 'reverted' | 'broadcast'; blo
 
 /** What the caller should see about a transaction before it is approved. */
 function previewSummary(preview: TxPreview) {
+  const chain = CHAINS[preview.chain as ChainName]?.chain
+  const warnings = (preview.decoded?.fields ?? []).filter((f) => f.warning).map((f) => `${f.name}: ${f.warning}`)
   return {
+    network: chain?.name,
+    explorer: preview.explorer,
+    ...(preview.valueFormatted && { value: `${preview.valueFormatted} ${chain?.nativeCurrency.symbol ?? ''}`.trim() }),
     action: preview.decoded?.intent ?? preview.decoded?.functionName,
     protocol: preview.decoded?.protocol ?? preview.toLabel,
     // Labels come from the contracts themselves, so the address they belong to goes too.
     to: preview.to,
-    details: preview.decoded?.fields.map((f) => `${f.name}: ${f.value}${f.warning ? ` (${f.warning})` : ''}`),
+    // Whether the decoding can be trusted: a verified ABI, or a guess from the selector.
+    decodedFrom: preview.decoded?.source,
+    details: preview.decoded?.fields.map((f) => `${f.name}: ${f.value}`),
+    ...(warnings.length > 0 && { warnings }),
     simulation: preview.simulation
   }
 }

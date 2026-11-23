@@ -1,6 +1,7 @@
 import { z } from 'zod'
-import { collectSigningRequest } from '../../signing-requests.js'
+import { collectSigningRequest, GRACE_MS } from '../../signing-requests.js'
 import { createTool, formatResponse } from '../../utils.js'
+import { getPhoneSigner } from '../../walletconnect.js'
 import { failure } from '../sign/errors.js'
 
 /**
@@ -87,6 +88,39 @@ export default {
       } catch (error) {
         return failure(error, 'Could not check that signing request')
       }
+    }
+  ),
+
+  // A read for the same reason as above, and hidden from the agent on hosts that draw cards:
+  // the pairing card follows its own QR with this, and an agent has wallet_status.
+  wait_for_pairing: createTool(
+    'Wait For Pairing',
+    'Follow a pair_phone_wallet QR until a wallet approves it, waiting a while before reporting back. Used by the pairing card; agents should call wallet_status instead.',
+    z.object({
+      uri: z.string().describe('The uri pair_phone_wallet returned')
+    }),
+    async (args, identity) => {
+      const phone = getPhoneSigner()
+      const topic = /^wc:([0-9a-f]+)@/.exec(args.uri)?.[1]
+      if (!phone || !topic) return formatResponse({ status: 'unavailable' })
+
+      const expiry = Number(new URL(args.uri).searchParams.get('expiryTimestamp')) * 1000 || Number.POSITIVE_INFINITY
+      const deadline = Date.now() + GRACE_MS
+      // ponytail: polls the session store each second; subscribe to the client's session events if it ever shows up in a profile.
+      while (Date.now() < deadline) {
+        const session = (await phone.sessions(identity)).find((s) => s.pairingTopic === topic)
+        if (session) {
+          return formatResponse({
+            status: 'paired',
+            address: session.accounts[0],
+            wallet: session.peer,
+            chains: session.chains.length
+          })
+        }
+        if (Date.now() > expiry) return formatResponse({ status: 'expired' })
+        await new Promise<void>((resolve) => setTimeout(resolve, 1000).unref())
+      }
+      return formatResponse({ status: 'waiting' })
     }
   )
 }

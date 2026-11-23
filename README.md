@@ -125,7 +125,7 @@ returns the page URL any time you want to open it yourself.
 ## 🧰 Tools
 
 <details>
-<summary><b>35 tools</b> — reads, writes, ENS, logs, tracing</summary>
+<summary><b>36 tools</b> — reads, writes, ENS, logs, tracing</summary>
 
 ### ✍️ Transactions & signing
 | Tool | |
@@ -137,6 +137,7 @@ returns the page URL any time you want to open it yourself.
 | `check_signing_request` | Collect a request still awaiting approval, by its `requestId` |
 | `wallet_status` | Every signer and whether it is ready — phone wallets and the browser page |
 | `pair_phone_wallet` | Pair a phone over WalletConnect, returns a QR |
+| `wait_for_pairing` | Follow a pairing QR until a wallet approves. It is for the pairing card; clients that draw cards hide it from the agent |
 | `disconnect_phone_wallet` | Drop one paired wallet by `account`, or every session and pairing |
 
 The four signing tools take a required `signWith` of `phone` or `browser`. There is no
@@ -148,6 +149,13 @@ omitted, the most recently paired is used.
 A request not approved within the call comes back with a `requestId` instead of hanging,
 and `check_signing_request` collects it — asking again would put a second prompt in front
 of your wallet.
+
+Clients that render [MCP Apps](https://github.com/modelcontextprotocol/ext-apps) show a card
+instead of the JSON. The three transaction tools get the decoded call, the simulation and the
+request's progress through approval and mining, followed live, with addresses linked to the
+explorer. `pair_phone_wallet` gets a scannable QR that turns into the connected wallet once
+one approves. The cards only show and follow; your wallet still does the signing. Other
+clients get the same text results as before.
 
 ### 📜 Contracts
 | Tool | |

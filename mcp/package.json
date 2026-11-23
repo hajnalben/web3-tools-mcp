@@ -26,7 +26,7 @@
   },
   "scripts": {
     "clean": "rm -rf dist",
-    "build": "npm run clean && tsc && cp src/erc7730-index.json.gz dist/",
+    "build": "npm run clean && tsc && cp src/erc7730-index.json.gz src/signing-request.html src/pair-wallet.html dist/",
     "watch": "tsc --watch",
     "typecheck": "tsc -p tsconfig.test.json",
     "test": "vitest run",

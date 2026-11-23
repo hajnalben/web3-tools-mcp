@@ -1,0 +1,625 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Signing request</title>
+<style>
+  /* The host's theme first, so the card sits in its chat; the signing page's palette otherwise. */
+  :root {
+    color-scheme: light dark;
+    --bg: var(--color-background-primary, light-dark(#ffffff, #161b22));
+    --bg-2: var(--color-background-secondary, light-dark(#f4f6f8, #1b212a));
+    --text: var(--color-text-primary, light-dark(#101620, #e6edf3));
+    --text-2: var(--color-text-secondary, light-dark(#58626f, #9aa5b1));
+    --border: var(--color-border-primary, light-dark(#e2e6ea, #262d38));
+    --accent: light-dark(#3856d6, #7d97ff);
+    --accent-soft: light-dark(#eef1fe, rgba(125, 151, 255, 0.14));
+    --ok: var(--color-text-success, light-dark(#0d7a45, #5ed39a));
+    --ok-bg: var(--color-background-success, light-dark(#eaf7f0, rgba(46, 160, 97, 0.14)));
+    --ok-ring: var(--color-border-success, light-dark(#bce3cd, rgba(94, 211, 154, 0.26)));
+    --bad: var(--color-text-danger, light-dark(#b3251d, #ff9a92));
+    --bad-bg: var(--color-background-danger, light-dark(#fdeeec, rgba(248, 81, 73, 0.13)));
+    --bad-ring: var(--color-border-danger, light-dark(#f4c6c2, rgba(255, 154, 146, 0.26)));
+    --warn: var(--color-text-warning, light-dark(#8a5a00, #f0c36d));
+    --warn-bg: var(--color-background-warning, light-dark(#fdf6e7, rgba(187, 128, 9, 0.14)));
+    --warn-ring: var(--color-border-warning, light-dark(#efdcae, rgba(240, 195, 109, 0.26)));
+    --sans: var(--font-sans, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif);
+    --mono: var(--font-mono, ui-monospace, "SF Mono", Menlo, Consolas, monospace);
+    --ease: cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  * { box-sizing: border-box; }
+  ::selection { background: var(--accent-soft); color: var(--text); }
+  body {
+    margin: 0;
+    padding: 18px 20px 16px;
+    background: var(--bg);
+    color: var(--text);
+    font: 14px/1.5 var(--sans);
+    font-variant-numeric: tabular-nums;
+    -webkit-font-smoothing: antialiased;
+  }
+  .mono { font-family: var(--mono); font-size: 12.5px; }
+  svg { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.75; stroke-linecap: round; stroke-linejoin: round; }
+  [hidden] { display: none !important; }
+
+  /* What is being signed */
+  .head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+  h1 { margin: 0; font-size: 18px; font-weight: 600; letter-spacing: -0.015em; line-height: 1.3; text-wrap: balance; }
+  .chain {
+    flex: none;
+    margin-top: 1px;
+    padding: 2px 10px;
+    border-radius: 999px;
+    background: var(--bg-2);
+    box-shadow: inset 0 0 0 1px var(--border);
+    color: var(--text-2);
+    font-size: 12px;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+  .to { margin: 4px 0 0; color: var(--text-2); font-size: 13px; }
+  /* Kept whole: an address split across lines is harder to compare against the wallet's. */
+  .to .mono { display: inline-block; color: var(--text); word-break: break-all; }
+
+  /* A contract call, decoded, with where the decoding came from */
+  .fields { margin-top: 14px; padding: 2px 13px; border-radius: 10px; background: var(--bg-2); box-shadow: inset 0 0 0 1px var(--border); font-size: 13px; }
+  dl { margin: 0; }
+  .field { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; padding: 8px 0; border-bottom: 1px solid var(--border); }
+  .field:last-child { border-bottom: none; }
+  .field dt { flex: none; color: var(--text-2); }
+  .field dd { margin: 0; min-width: 0; font-family: var(--mono); font-size: 12.5px; text-align: right; word-break: break-all; }
+  .source { display: flex; align-items: center; gap: 6px; margin: 0 -13px; padding: 8px 13px; border-top: 1px solid var(--border); color: var(--text-2); font-size: 12px; }
+  .source svg { width: 14px; height: 14px; color: var(--ok); }
+  .source[data-source=guessed] { color: var(--warn); }
+  .source[data-source=guessed] svg { color: var(--warn); }
+  .warnings { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 6px; }
+  .warning { display: flex; align-items: flex-start; gap: 8px; padding: 9px 12px; border-radius: 10px; background: var(--warn-bg); box-shadow: inset 0 0 0 1px var(--warn-ring); color: var(--warn); font-size: 13px; font-weight: 500; }
+  .warning svg { margin-top: 2px; }
+
+  /* The simulation, in the signing page's own colours and words */
+  .sim {
+    margin-top: 14px;
+    padding: 11px 13px;
+    border-radius: 10px;
+    box-shadow: inset 0 0 0 1px var(--ring);
+    background: var(--tint);
+    color: var(--ink);
+    font-size: 13px;
+  }
+  .sim[data-tone=ok] { --tint: var(--ok-bg); --ring: var(--ok-ring); --ink: var(--ok); }
+  .sim[data-tone=bad] { --tint: var(--bad-bg); --ring: var(--bad-ring); --ink: var(--bad); }
+  .sim[data-tone=warn] { --tint: var(--warn-bg); --ring: var(--warn-ring); --ink: var(--warn); }
+  .sim-head { display: flex; align-items: center; gap: 7px; }
+  .sim-head strong { font-weight: 600; }
+  .sim-note { margin: 3px 0 0 23px; opacity: 0.9; }
+  .assets { margin: 9px 0 0; padding: 9px 0 0 23px; border-top: 1px solid color-mix(in srgb, currentColor 22%, transparent); display: grid; gap: 4px; }
+  .asset { display: flex; justify-content: space-between; gap: 12px; font-family: var(--mono); font-size: 12px; }
+  .asset b { font-weight: 600; white-space: nowrap; }
+  .asset span { opacity: 0.85; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* Where it has got to */
+  .track { display: flex; list-style: none; margin: 18px 0 0; padding: 0; }
+  .step { position: relative; flex: 1; display: grid; justify-items: center; gap: 6px; color: var(--text-2); font-size: 12px; font-weight: 500; text-align: center; }
+  .step::before {
+    content: "";
+    position: absolute;
+    top: 10px;
+    right: 50%;
+    width: 100%;
+    height: 2px;
+    background: linear-gradient(var(--edge, var(--text)) 0 0) left / var(--fill, 0%) 100% no-repeat, var(--border);
+    transition: background-size 0.6s var(--ease);
+  }
+  .step:first-child::before { display: none; }
+  .step[data-state=done]::before,
+  .step[data-state=active]::before,
+  .step[data-state=failed]::before,
+  .step[data-state=held]::before { --fill: 100%; }
+  .node {
+    position: relative;
+    z-index: 1;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    background: var(--bg);
+    box-shadow: inset 0 0 0 1.5px var(--border);
+    transition: background-color 0.4s var(--ease), box-shadow 0.4s var(--ease), color 0.4s var(--ease);
+  }
+  .node svg { width: 13px; height: 13px; stroke-width: 2.25; }
+  .step[data-state=done] { color: var(--text); }
+  .step[data-state=done] .node { background: var(--bg-2); box-shadow: inset 0 0 0 1.5px var(--text-2); }
+  .step[data-state=active] { color: var(--text); }
+  .step[data-state=active] .node { box-shadow: inset 0 0 0 1.5px var(--accent); }
+  .step[data-state=active] .node::after {
+    content: "";
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--accent);
+  }
+  .step[data-state=active] .node::before {
+    content: "";
+    position: absolute;
+    inset: -1px;
+    border-radius: 50%;
+    box-shadow: 0 0 0 0 var(--accent);
+    animation: beckon 1.8s var(--ease) infinite;
+  }
+  .step[data-state=held] { color: var(--warn); }
+  .step[data-state=held] .node { box-shadow: inset 0 0 0 1.5px var(--warn); color: var(--warn); }
+  .step[data-state=failed] { color: var(--bad); }
+  .step[data-state=failed] .node { background: var(--bad); color: var(--bg); box-shadow: none; }
+  .track[data-outcome=ok] .step:last-child .node { background: var(--ok); color: var(--bg); box-shadow: none; }
+  .track[data-outcome=ok] .step:last-child { color: var(--ok); }
+  @keyframes beckon {
+    0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 45%, transparent); }
+    100% { box-shadow: 0 0 0 9px transparent; }
+  }
+
+  .status { margin: 14px 0 0; text-align: center; }
+  .status strong { display: block; font-weight: 600; }
+  .status[data-tone=ok] strong { color: var(--ok); }
+  .status[data-tone=bad] strong { color: var(--bad); }
+  .status[data-tone=warn] strong { color: var(--warn); }
+  .hint { display: block; margin-top: 2px; color: var(--text-2); font-size: 13px; text-wrap: pretty; }
+
+  /* The transaction, once there is one */
+  .tx {
+    margin: 14px -20px -16px;
+    padding: 10px 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    border-top: 1px solid var(--border);
+    background: var(--bg-2);
+    font-size: 13px;
+  }
+  .tx .mono { color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  a { color: inherit; text-decoration: none; border-radius: 3px; }
+  a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  /* Addresses and tokens follow to the explorer without shouting over the data around them. */
+  .addr { border-bottom: 1px dotted color-mix(in srgb, currentColor 50%, transparent); transition: color 0.15s, border-color 0.15s; }
+  .addr:hover { color: var(--accent); border-bottom-color: var(--accent); }
+  .explorer { display: inline-flex; align-items: center; gap: 5px; flex: none; color: var(--accent); font-weight: 500; }
+  .explorer svg { width: 14px; height: 14px; }
+  .explorer:hover { text-decoration: underline; text-underline-offset: 3px; }
+
+  /* A phone-width chat: room for a whole 42-character address on one line. */
+  @media (max-width: 380px) {
+    body { padding-inline: 16px; }
+    .tx { margin-inline: -16px; padding-inline: 16px; }
+    .to .mono { font-size: 11.5px; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+  }
+</style>
+</head>
+<body>
+  <svg aria-hidden="true" style="display:none">
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/></symbol>
+    <symbol id="i-pause" viewBox="0 0 24 24"><path d="M12 6v6l4 2"/><circle cx="12" cy="12" r="9"/></symbol>
+    <symbol id="i-out" viewBox="0 0 24 24"><path d="M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></symbol>
+  </svg>
+
+  <div class="head">
+    <h1 id="title">Preparing transaction</h1>
+    <span class="chain" id="chain" hidden></span>
+  </div>
+  <p class="to" id="to" hidden><span id="to-label">to</span> <span class="mono" id="recipient"></span></p>
+
+  <section class="fields" id="fields" hidden aria-label="Decoded call">
+    <dl id="field-list"></dl>
+    <p class="source" id="source" hidden></p>
+  </section>
+  <ul class="warnings" id="warnings" hidden></ul>
+
+  <section class="sim" id="sim" hidden aria-label="Simulation"></section>
+
+  <ol class="track" id="track" aria-label="Progress">
+    <li class="step"><span class="node"></span><span class="label">Sent to wallet</span></li>
+    <li class="step"><span class="node"></span><span class="label">Approved</span></li>
+    <li class="step"><span class="node"></span><span class="label">Mined</span></li>
+  </ol>
+
+  <p class="status" id="status" role="status" aria-live="polite"><strong id="message">Simulating, then sending it to your wallet</strong><span class="hint" id="hint" hidden></span></p>
+
+  <footer class="tx" id="tx" hidden>
+    <span class="mono" id="hash"></span>
+    <a class="explorer" id="explorer" hidden><span id="explorer-label">View on explorer</span><svg aria-hidden="true"><use href="#i-out"/></svg></a>
+  </footer>
+
+<script>
+'use strict'
+
+// Speaks MCP Apps (io.modelcontextprotocol/ui) to the host over postMessage. This card
+// shows and follows a signing request; it never signs. The wallet does that.
+
+const $ = (id) => document.getElementById(id)
+const short = (hex) => (typeof hex === 'string' && hex.length > 12 ? `${hex.slice(0, 6)}…${hex.slice(-4)}` : hex)
+const middle = (hex) => (typeof hex === 'string' && hex.length > 22 ? `${hex.slice(0, 10)}…${hex.slice(-8)}` : hex)
+const icon = (name) => `<svg aria-hidden="true"><use href="#i-${name}"/></svg>`
+
+let nextId = 1
+const calls = new Map()
+let host = {}
+let args = {}
+
+/** Everything the card shows, rendered as a whole whenever any of it changes. */
+const view = {
+  // Index of the step being worked on: 0 sending to the wallet, 1 approval, 2 mining, 3 all done.
+  step: 0,
+  failedAt: undefined,
+  settled: false,
+  tone: 'wait',
+  message: 'Simulating, then sending it to your wallet',
+  hint: undefined,
+  txHash: undefined,
+  explorerUrl: undefined
+}
+
+function post(message) {
+  window.parent.postMessage({ jsonrpc: '2.0', ...message }, '*')
+}
+
+function request(method, params) {
+  const id = nextId++
+  post({ id, method, params })
+  return new Promise((resolve, reject) => calls.set(id, { resolve, reject }))
+}
+
+window.addEventListener('message', (event) => {
+  if (event.source !== window.parent) return
+  const message = event.data
+  if (!message || message.jsonrpc !== '2.0') return
+
+  if (!message.method && calls.has(message.id)) {
+    const call = calls.get(message.id)
+    calls.delete(message.id)
+    message.error ? call.reject(new Error(message.error.message)) : call.resolve(message.result)
+    return
+  }
+
+  switch (message.method) {
+    case 'ui/notifications/tool-input':
+      return showInput(message.params.arguments ?? {})
+    case 'ui/notifications/tool-result':
+      return onToolResult(message.params)
+    case 'ui/notifications/tool-cancelled':
+      return update({ settled: true, failedAt: 0, tone: 'bad', message: 'Cancelled before it reached the wallet', hint: message.params?.reason })
+    case 'ui/notifications/host-context-changed':
+      return applyContext(message.params)
+    case 'ui/resource-teardown':
+    case 'ping':
+      return post({ id: message.id, result: {} })
+  }
+})
+
+function applyContext(context) {
+  if (!context) return
+  if (context.theme) document.documentElement.style.colorScheme = context.theme
+  for (const [name, value] of Object.entries(context.styles?.variables ?? {})) {
+    if (value) document.documentElement.style.setProperty(name, value)
+  }
+}
+
+/** Every tool here answers with one JSON text block; an error result may not. */
+function parse(result) {
+  const text = result?.content?.find((block) => block.type === 'text')?.text
+  try {
+    return JSON.parse(text)
+  } catch {
+    return { success: false, error: text ?? 'No result' }
+  }
+}
+
+function signerName(signWith) {
+  return signWith === 'phone' ? 'phone' : signWith === 'browser' ? 'browser' : 'wallet'
+}
+
+/** Which tool this card follows, told apart by its arguments, which every host sends. */
+function kindOf(input) {
+  return input.functionAbi ? 'contract' : input.tokenAddress ? 'token' : 'native'
+}
+
+function showInput(input) {
+  args = input
+  const kind = kindOf(input)
+  const fn = /function\s+(\w+)/.exec(input.functionAbi ?? '')?.[1]
+  $('title').textContent = kind === 'contract' ? `Call ${fn ?? 'contract'}()` : `Send ${input.amount ?? ''}`
+  // The slug until the preview brings the network's own name.
+  $('chain').textContent = (input.chain ?? '').replace(/^./, (c) => c.toUpperCase())
+  $('chain').hidden = !input.chain
+  $('to-label').textContent = kind === 'contract' ? 'on' : 'to'
+  showTarget()
+  render()
+}
+
+/** The chain's block explorer, once a preview says which; until then addresses are plain text. */
+let explorer
+
+function addressNode(address, { text = address, path = 'address' } = {}) {
+  const node = document.createElement(explorer ? 'a' : 'span')
+  node.textContent = text
+  node.title = address
+  if (explorer) {
+    node.classList.add('addr')
+    node.href = `${explorer}/${path}/${address}`
+    node.target = '_blank'
+    node.rel = 'noopener'
+  }
+  return node
+}
+
+function showTarget() {
+  const target = kindOf(args) === 'contract' ? args.contractAddress : args.to
+  const node = addressNode(target ?? '')
+  node.id = 'recipient'
+  node.classList.add('mono')
+  $('recipient').replaceWith(node)
+  $('to').hidden = !target
+}
+
+function showPreview(preview) {
+  if (!preview) return
+  if (preview.explorer) {
+    explorer = preview.explorer.replace(/\/$/, '')
+    showTarget()
+  }
+  if (preview.network) {
+    $('chain').textContent = preview.network
+    $('chain').hidden = false
+  }
+
+  const kind = kindOf(args)
+  if (kind === 'native') $('title').textContent = `Send ${preview.value ?? args.amount}`
+  if (kind === 'token') {
+    const moved = preview.simulation?.assetChanges?.find((c) => c.token?.toLowerCase() === args.tokenAddress.toLowerCase())
+    $('title').textContent = `Send ${args.amount} ${moved?.symbol ?? preview.protocol ?? short(args.tokenAddress)}`
+  }
+  if (kind === 'contract') {
+    // An ERC-7730 intent reads as a sentence; a bare function name does not.
+    if (preview.action) $('title').textContent = /^[a-z]\w*$/.test(preview.action) ? `Call ${preview.action}()` : preview.action
+    if (preview.protocol) $('to-label').textContent = `on ${preview.protocol}`
+    showFields(preview)
+  }
+  showWarnings(preview.warnings)
+  showSimulation(preview.simulation)
+}
+
+function showFields(preview) {
+  const rows = [...(preview.value ? [`Value: ${preview.value}`] : []), ...(preview.details ?? [])]
+  $('field-list').replaceChildren(
+    ...rows.map((detail) => {
+      const [name, ...rest] = detail.split(': ')
+      const row = document.createElement('div')
+      row.className = 'field'
+      const dt = document.createElement('dt')
+      dt.textContent = name
+      const dd = document.createElement('dd')
+      const value = rest.join(': ')
+      dd.append(/^0x[0-9a-fA-F]{40}$/.test(value) ? addressNode(value) : value)
+      row.append(dt, dd)
+      return row
+    })
+  )
+  const source = $('source')
+  source.hidden = !preview.decodedFrom
+  if (preview.decodedFrom) {
+    source.dataset.source = preview.decodedFrom
+    source.innerHTML =
+      preview.decodedFrom === 'verified'
+        ? `${icon('check')}<span>Decoded from the verified ABI</span>`
+        : `${icon('alert')}<span>ABI guessed from bytecode. The names may be wrong</span>`
+  }
+  $('fields').hidden = !rows.length && !preview.decodedFrom
+}
+
+function showWarnings(warnings = []) {
+  $('warnings').replaceChildren(
+    ...warnings.map((text) => {
+      const item = document.createElement('li')
+      item.className = 'warning'
+      item.innerHTML = icon('alert')
+      item.append(Object.assign(document.createElement('span'), { textContent: text }))
+      return item
+    })
+  )
+  $('warnings').hidden = !warnings.length
+}
+
+function showSimulation(sim) {
+  const box = $('sim')
+  box.hidden = false
+  if (!sim) {
+    box.dataset.tone = 'warn'
+    box.innerHTML = `<div class="sim-head">${icon('alert')}<strong>Not simulated</strong></div><p class="sim-note">Approve only if you know what this does.</p>`
+    return
+  }
+  if (!sim.success) {
+    box.dataset.tone = 'bad'
+    box.innerHTML = `<div class="sim-head">${icon('x')}<strong>Simulation reverted</strong></div><p class="sim-note"></p><p class="sim-note">This transaction will very likely fail and still cost gas.</p>`
+    box.querySelector('.sim-note').textContent = sim.error || 'execution reverted'
+    return
+  }
+  box.dataset.tone = 'ok'
+  const gas = sim.gasEstimate ? ` · ${Number(sim.gasEstimate).toLocaleString('en-US')} gas` : ''
+  box.innerHTML = `<div class="sim-head">${icon('check')}<strong>Simulation succeeded</strong><span></span></div>`
+  box.querySelector('.sim-head span').textContent = gas
+  const changes = sim.assetChanges ?? []
+  if (changes.length) {
+    const list = document.createElement('div')
+    list.className = 'assets'
+    for (const change of changes) {
+      const row = document.createElement('div')
+      row.className = 'asset'
+      const amount = document.createElement('b')
+      amount.append(`${change.humanAmount ?? change.amount} `, addressNode(change.token, { text: change.symbol ?? short(change.token), path: 'token' }))
+      const party = document.createElement('span')
+      party.append('to ', addressNode(change.to, { text: short(change.to) }))
+      row.append(amount, party)
+      list.append(row)
+    }
+    box.append(list)
+  }
+}
+
+function update(patch) {
+  Object.assign(view, patch)
+  render()
+}
+
+/** Each step says what happened there, so a red or stalled one never reads as the success it was meant to be. */
+const LABELS = {
+  failed: ['Not sent', 'Rejected', 'Reverted'],
+  held: ['Not sent', 'Unconfirmed', 'Not mined yet']
+}
+
+function render() {
+  const steps = $('track').children
+  const reached = [`Sent to ${signerName(args.signWith)}`, 'Approved', 'Mined']
+  for (let i = 0; i < steps.length; i++) {
+    const state =
+      view.failedAt === i ? 'failed'
+      : i < view.step ? 'done'
+      : i === view.step ? (view.settled ? 'held' : 'active')
+      : 'todo'
+    steps[i].dataset.state = state
+    steps[i].querySelector('.label').textContent = LABELS[state]?.[i] ?? reached[i]
+    steps[i].querySelector('.node').innerHTML =
+      state === 'done' ? icon('check') : state === 'failed' ? icon('x') : state === 'held' ? icon('pause') : ''
+    steps[i].setAttribute('aria-current', state === 'active' ? 'step' : 'false')
+  }
+  $('track').dataset.outcome = view.step === 3 && view.failedAt === undefined ? 'ok' : ''
+
+  $('status').dataset.tone = view.tone
+  $('message').textContent = view.message
+  $('hint').textContent = view.hint ?? ''
+  $('hint').hidden = !view.hint
+
+  $('tx').hidden = !view.txHash
+  $('hash').textContent = middle(view.txHash ?? '')
+  $('hash').title = view.txHash ?? ''
+  const link = $('explorer')
+  link.hidden = !view.explorerUrl
+  if (view.explorerUrl) {
+    link.href = view.explorerUrl
+    link.target = '_blank'
+    link.rel = 'noopener'
+    $('explorer-label').textContent = `View on ${new URL(view.explorerUrl).hostname.replace(/^www\./, '')}`
+  }
+}
+
+// Every link goes through the host when it can open one; a sandboxed frame may not open tabs itself.
+document.addEventListener('click', (event) => {
+  const link = event.target.closest('a[href]')
+  if (!link || !host.openLinks) return
+  event.preventDefault()
+  request('ui/open-link', { url: link.href }).catch(() => {})
+})
+
+function waitingForApproval(signWith) {
+  return {
+    step: 1,
+    tone: 'wait',
+    message: signWith === 'phone' ? 'Approve it in your phone wallet' : 'Approve it on the signing page',
+    hint: signWith === 'phone' ? 'Some wallets send no notification, so open the app if nothing popped up.' : undefined
+  }
+}
+
+function onToolResult(result) {
+  const data = parse(result)
+  showPreview(data.preview)
+
+  if (result.isError || (data.success === false && !data.status)) {
+    return update({ settled: true, failedAt: 0, tone: 'bad', message: data.message ?? 'It never reached the wallet', hint: data.error })
+  }
+  if (data.status === 'awaiting_approval') {
+    update(waitingForApproval(data.signedWith ?? args.signWith))
+    return follow(data.requestId)
+  }
+  settle(data, data.transactionHash, data.explorerUrl, data.blockNumber)
+}
+
+/** Long-polls the request: check_signing_request waits server-side until it moves or ~25s pass. */
+async function follow(requestId) {
+  if (!host.serverTools) {
+    return update({ hint: 'This app cannot follow it live, so Claude will check on it.' })
+  }
+  for (let first = true; !view.settled; first = false) {
+    // The server already holds each call open; this only stops a host that answers instantly from spinning.
+    if (!first) await new Promise((resolve) => setTimeout(resolve, 1000))
+    let data
+    try {
+      data = parse(await request('tools/call', { name: 'check_signing_request', arguments: { requestId } }))
+    } catch (error) {
+      return update({ settled: true, tone: 'warn', message: 'Lost track of it here', hint: `Ask Claude to check on it. ${error.message}` })
+    }
+    if (data.status === 'awaiting_approval') continue
+    if (data.status === 'mining') {
+      update({ step: 2, tone: 'wait', message: 'Approved. Waiting for it to be mined', hint: undefined, txHash: data.transactionHash })
+      continue
+    }
+    const result = data.result ?? {}
+    const base = result.preview?.explorer?.replace(/\/$/, '') ?? explorer
+    const hash = result.txHash ?? data.transactionHash
+    return settle(data, hash, base && hash ? `${base}/tx/${hash}` : undefined, result.receipt?.blockNumber, requestId)
+  }
+}
+
+function settle(data, txHash, explorerUrl, blockNumber, requestId) {
+  const block = blockNumber ? `Mined in block ${Number(blockNumber).toLocaleString('en-US')}` : 'Mined'
+  const outcomes = {
+    mined: { step: 3, tone: 'ok', message: block },
+    signed: { step: 3, tone: 'ok', message: 'Signed' },
+    broadcast: { step: 2, tone: 'warn', message: 'Broadcast, not mined yet', hint: 'Check the explorer before treating it as done.' },
+    reverted: { step: 2, failedAt: 2, tone: 'bad', message: 'Mined, but it reverted', hint: 'The gas was spent and nothing else changed.' },
+    rejected: { step: 1, failedAt: 1, tone: 'bad', message: 'Rejected in your wallet', hint: 'Nothing was signed.' },
+    outcome_unknown: {
+      step: 1,
+      tone: 'warn',
+      message: 'Outcome unknown',
+      hint: 'It may still have been signed or broadcast. Check your wallet before trying again.'
+    }
+  }
+  update({
+    hint: undefined,
+    ...(outcomes[data.status] ?? { failedAt: view.step, tone: 'bad', message: data.message ?? 'Failed', hint: data.error }),
+    settled: true,
+    txHash,
+    explorerUrl
+  })
+
+  // Only a request the card followed itself is news to the model; an inline result it already has.
+  if (requestId) {
+    request('ui/update-model-context', {
+      content: [{ type: 'text', text: `Signing request ${requestId} (${$('title').textContent} on ${$('chain').textContent}) settled: ${data.status}${txHash ? `, transaction ${txHash}` : ''}.` }]
+    }).catch(() => {})
+  }
+}
+
+new ResizeObserver(() => {
+  const { width, height } = document.documentElement.getBoundingClientRect()
+  post({ method: 'ui/notifications/size-changed', params: { width: Math.ceil(width), height: Math.ceil(height) } })
+}).observe(document.documentElement)
+
+render()
+request('ui/initialize', {
+  protocolVersion: '2026-01-26',
+  appInfo: { name: 'web3-tools signing card', version: '1' },
+  appCapabilities: { availableDisplayModes: ['inline'] }
+}).then((result) => {
+  host = result?.hostCapabilities ?? {}
+  applyContext(result?.hostContext)
+  post({ method: 'ui/notifications/initialized', params: {} })
+})
+</script>
+</body>
+</html>

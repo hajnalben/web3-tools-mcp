@@ -103,6 +103,22 @@ describe('a signature that outlives its tool call', () => {
     expect(collected.result).toBe('0xapproved')
   })
 
+  it('can be collected by the agent and a signing card alike, and says what it is asking for', async () => {
+    const wallet = never<string>()
+    const preview = { chain: 'base', to: '0xbob' }
+    const outcome = await signingCall(fast, (progress) => {
+      progress.previewed(preview)
+      return wallet.promise
+    })
+    if (outcome.done) throw new Error('should not have settled')
+    expect(outcome.request.preview).toEqual(preview)
+
+    wallet.approve('0xapproved')
+
+    expect((await collectSigningRequest(outcome.request.id, ALICE, 50)).result).toBe('0xapproved')
+    expect((await collectSigningRequest(outcome.request.id, ALICE, 50)).result).toBe('0xapproved')
+  })
+
   it('reports a rejection that arrives late as a rejection, not a timeout', async () => {
     const wallet = never<string>()
     const outcome = await signingCall(fast, () => wallet.promise)

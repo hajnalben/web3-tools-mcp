@@ -4,11 +4,28 @@ Notable changes per release. Dates are release dates; unreleased work sits at th
 
 ## Unreleased
 
+### Added
+
+- **Cards for MCP Apps clients.** `send_native_token`, `send_erc20_token` and
+  `write_contract` show the decoded call, the simulation and the request's progress through
+  approval and mining, followed live, with addresses linked to the explorer.
+  `pair_phone_wallet` shows a scannable QR, wallet links, a copy fallback and an expiry
+  countdown, and turns into the connected wallet once one approves. Clients without MCP Apps
+  get the same text as before.
+- **`wait_for_pairing`** follows a pairing QR until a wallet approves. It exists for the
+  pairing card, and clients that draw cards hide it from the agent.
+
 ### Changed
 
 - **`get_yield_pools`** needs `DEFILLAMA_API_KEY` (or `--defillama-api-key`), a DefiLlama Pro
   key, and is not offered without one: DefiLlama is retiring its free pool list. Each call
   spends one Pro credit. `get_token_prices` and `get_portfolio` still use the free API.
+- Transaction previews name the network, the value in the native token and the explorer, and
+  say whether the call was decoded from a verified ABI or guessed. Field warnings, such as an
+  unlimited approval, come as their own `warnings` list, and a request still awaiting
+  approval carries its preview too.
+- `check_signing_request` can read a settled request again until it expires, so the agent
+  and a card can both follow it.
 
 ## [3.2.0] — 2026-10-02
 

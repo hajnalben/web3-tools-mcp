@@ -1,6 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import packageJson from '../package.json' with { type: 'json' }
 import { registerAllTools, type ToolMiddleware } from './tools/index.js'
+import { registerCards } from './ui.js'
 
 /**
  * A server with every tool registered, ready to be connected to a transport.
@@ -43,5 +44,6 @@ export function createMcpServer(middleware?: ToolMiddleware): McpServer {
     { capabilities: { logging: {} } }
   )
   registerAllTools(server, middleware)
+  registerCards(server)
   return server
 }
